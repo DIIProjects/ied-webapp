@@ -199,6 +199,37 @@ def mark_no_show(conn, booking_id):
         {"b": booking_id}
     )
 
+def get_bookings_with_logs(conn, event_id, company_id):
+    q = text("""
+        SELECT 
+            b.id,
+            b.slot,
+            b.student,
+            COALESCE(il.status, 'pending') AS status,
+            il.start_time,
+            il.end_time
+        FROM booking b
+        LEFT JOIN interview_log il ON il.booking_id = b.id
+        WHERE b.event_id = :e AND b.company_id = :c
+        ORDER BY b.slot
+    """)
+    raw_rows = list(conn.execute(q, {"e": event_id, "c": company_id}).mappings())
+
+    def fmt(ts: str | None) -> str:
+        if not ts:
+            return ""
+        return ts[:19].replace("T", " ")
+
+    # Convert each RowMapping to a dict, then mutate safely
+    rows = []
+    for rm in raw_rows:
+        d = dict(rm)
+        d["start_time"] = fmt(d.get("start_time"))
+        d["end_time"] = fmt(d.get("end_time"))
+        rows.append(d)
+
+    return rows
+
 # ------------------- UI -------------------
 st.set_page_config(page_title="Industrial Engineering Day", page_icon="🎓", layout="centered")
 init_db()
@@ -308,7 +339,7 @@ elif role == "company":
         with engine.begin() as conn:
             name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
 
-            # prossimo colloquio
+            # Prossimo colloquio
             st.subheader(f"Prossimo colloquio – {name}")
             next_b = get_next_booking(conn, event["id"], cid)
             if next_b:
@@ -325,13 +356,22 @@ elif role == "company":
             else:
                 st.info("Nessun colloquio imminente")
 
+            # Tabella completa con stato/inizio/fine
             st.subheader("Prenotazioni – Lista completa")
-            bookings = get_bookings(conn, event["id"], cid)
-            df = pd.DataFrame(bookings)
+            rows = get_bookings_with_logs(conn, event["id"], cid)
+            df = pd.DataFrame(rows)
             if df.empty:
                 st.info("Nessuna prenotazione")
             else:
-                st.dataframe(df.sort_values("slot"), use_container_width=True)
+                df = df.sort_values("slot")[["slot", "student", "status", "start_time", "end_time"]]
+                df = df.rename(columns={
+                    "slot": "Orario",
+                    "student": "Studente",
+                    "status": "Stato",
+                    "start_time": "Inizio",
+                    "end_time": "Fine"
+                })
+                st.dataframe(df, use_container_width=True)
 
 elif role == "admin":
     st.title("Area Admin")
@@ -340,12 +380,20 @@ elif role == "admin":
         companies = get_companies(conn, event["id"])
         for c in companies:
             st.markdown(f"### {c['name']}")
-            bookings = get_bookings(conn, event["id"], c["id"])
-            df = pd.DataFrame(bookings)
+            rows = get_bookings_with_logs(conn, event["id"], c["id"])
+            df = pd.DataFrame(rows)
             if df.empty:
                 st.info("Nessuna prenotazione")
             else:
-                st.dataframe(df.sort_values("slot"), use_container_width=True)
+                df = df.sort_values("slot")[["slot", "student", "status", "start_time", "end_time"]]
+                df = df.rename(columns={
+                    "slot": "Orario",
+                    "student": "Studente",
+                    "status": "Stato",
+                    "start_time": "Inizio",
+                    "end_time": "Fine"
+                })
+                st.dataframe(df, use_container_width=True)
 
     st.markdown("---")
     st.subheader("Aggiungi nuova azienda")
