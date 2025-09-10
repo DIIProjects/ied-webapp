@@ -190,7 +190,7 @@ with engine.begin() as conn:
 
 # -------- LOGIN VIEW --------
 if "role" not in st.session_state:
-    st.header("Login")
+    st.header("Industrial Engineering Day - Login page")
     tab_company, tab_student = st.tabs(["Company", "Student"])
 
     # --- Azienda/Admin ---
