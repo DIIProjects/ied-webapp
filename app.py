@@ -191,7 +191,7 @@ with engine.begin() as conn:
 # -------- LOGIN VIEW --------
 if "role" not in st.session_state:
     st.header("Login")
-    tab_company, tab_student = st.tabs(["Azienda / Admin", "Studente"])
+    tab_company, tab_student = st.tabs(["Company", "Student"])
 
     # --- Azienda/Admin ---
     with tab_company:
