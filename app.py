@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_URL = "sqlite:///ieday.db"
 AUTH_MODE = "dev"  # "dev" simple forms; "prod" integrate UniTN SSO
@@ -33,21 +33,19 @@ CREATE TABLE IF NOT EXISTS checkin (
   student TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS queue_entry (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id INTEGER NOT NULL,
-  company_id INTEGER NOT NULL,
-  student TEXT NOT NULL,
-  position INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'queued',
-  created_at TEXT NOT NULL,
-  UNIQUE(event_id, company_id, student)
-);
 CREATE TABLE IF NOT EXISTS company_user (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   company_id INTEGER NOT NULL,
   email TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS booking (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL,
+  company_id INTEGER NOT NULL,
+  student TEXT NOT NULL,
+  slot TEXT NOT NULL,
+  UNIQUE(event_id, company_id, slot)
 );
 '''
 
@@ -108,49 +106,33 @@ def toggle_checkin(conn, event_id, student):
         )
         return True
 
-def my_entry(conn, event_id, company_id, student):
-    q = text("""SELECT id, position, status 
-                FROM queue_entry 
-                WHERE event_id=:e AND company_id=:c AND student=:s 
-                  AND status='queued' LIMIT 1""")
-    return conn.execute(q, {"e": event_id, "c": company_id, "s": student}).mappings().first()
+# --- Booking helpers ---
+def generate_slots(start="09:00", end="17:00", step=15):
+    slots = []
+    start_dt = datetime.strptime(start, "%H:%M")
+    end_dt = datetime.strptime(end, "%H:%M")
+    while start_dt < end_dt:
+        slots.append(start_dt.strftime("%H:%M"))
+        start_dt += timedelta(minutes=step)
+    return slots
 
-def queue_len(conn, event_id, company_id):
-    return conn.execute(
-        text("SELECT COUNT(*) FROM queue_entry WHERE event_id=:e AND company_id=:c AND status='queued'"),
-        {"e": event_id, "c": company_id}
-    ).scalar_one()
+def get_bookings(conn, event_id, company_id):
+    q = text("SELECT slot, student FROM booking WHERE event_id=:e AND company_id=:c")
+    return list(conn.execute(q, {"e": event_id, "c": company_id}).mappings())
 
-def join_queue(conn, event_id, company_id, student):
-    if my_entry(conn, event_id, company_id, student):
-        return
-    last = conn.execute(
-        text("SELECT MAX(position) FROM queue_entry WHERE event_id=:e AND company_id=:c"),
-        {"e": event_id, "c": company_id}
-    ).scalar()
-    next_pos = (last or 0) + 1
+def book_slot(conn, event_id, company_id, student, slot):
     conn.execute(
-        text("""INSERT INTO queue_entry (event_id, company_id, student, position, status, created_at) 
-                VALUES (:e,:c,:s,:p,'queued',:t)"""),
-        {"e": event_id, "c": company_id, "s": student, "p": next_pos, "t": datetime.utcnow().isoformat()}
+        text("INSERT INTO booking (event_id, company_id, student, slot) VALUES (:e,:c,:s,:slot)"),
+        {"e": event_id, "c": company_id, "s": student, "slot": slot}
     )
 
-def leave_queue(conn, event_id, company_id, student):
-    conn.execute(
-        text("""UPDATE queue_entry SET status='cancelled' 
-                WHERE event_id=:e AND company_id=:c AND student=:s AND status='queued'"""),
-        {"e": event_id, "c": company_id, "s": student}
-    )
-
-def roster_df(conn, event_id, company_id):
-    rows = conn.execute(
-        text("""SELECT position AS Posizione, student AS Studente, created_at AS Inserito
-                FROM queue_entry
-                WHERE event_id = :e AND company_id = :c AND status = 'queued'
-                ORDER BY position ASC"""),
-        {"e": event_id, "c": company_id}
-    ).mappings().all()
-    return pd.DataFrame(rows)
+def get_student_bookings(conn, event_id, student):
+    q = text("""SELECT b.slot, c.name as company 
+                FROM booking b 
+                JOIN company c ON c.id=b.company_id 
+                WHERE b.event_id=:e AND b.student=:s 
+                ORDER BY b.slot""")
+    return list(conn.execute(q, {"e": event_id, "s": student}).mappings())
 
 def find_company_user(conn, email, password):
     q = text("""SELECT cu.company_id, cu.email, c.name as company_name 
@@ -233,7 +215,6 @@ if "role" not in st.session_state:
                     st.success("Login studente simulato (dev mode)")
                     st.rerun()
                 else:
-                    # Produzione: redirect verso SSO UniTN (link di esempio)
                     st.markdown(
                         f"[Accedi tramite UniTN SSO](https://idp.unitn.it/idp/profile/SAML2/Redirect/SSO)"
                     )
@@ -255,40 +236,35 @@ if role == "student":
     student = st.session_state.get("student_name") or st.session_state["email"]
     st.title("Area Studente")
     with engine.begin() as conn:
-        st.subheader("Check-in")
-        checked = is_checked_in(conn, event["id"], student)
-        colA, colB = st.columns(2)
-        with colA:
-            st.write("✅ Check-in effettuato" if checked else "Non hai fatto il check-in")
-        with colB:
-            if checked:
-                if st.button("Annulla check-in"):
-                    toggle_checkin(conn, event["id"], student)
-                    st.rerun()
-            else:
-                if st.button("Effettua check-in"):
-                    toggle_checkin(conn, event["id"], student)
-                    st.rerun()
+        st.subheader("Le mie prenotazioni")
+        myb = get_student_bookings(conn, event["id"], student)
+        if myb:
+            for b in myb:
+                st.write(f"- {b['slot']} con {b['company']}")
+        else:
+            st.info("Nessuna prenotazione")
 
-        st.subheader("Aziende")
-        for c in get_companies(conn, event["id"]):
-            col1, col2, col3 = st.columns([3, 2, 2])
-            with col1:
-                st.write(f"**{c['name']}**")
-            with col2:
-                st.caption(f"In coda: {queue_len(conn, event['id'], c['id'])}")
-            with col3:
-                entry = my_entry(conn, event["id"], c["id"], student)
-                if entry:
-                    if st.button(f"Esci (#{entry['position']})", key=f"leave_{c['id']}"):
-                        with engine.begin() as inner:
-                            leave_queue(inner, event["id"], c["id"], student)
-                        st.rerun()
-                else:
-                    if st.button("Metti in coda", key=f"join_{c['id']}"):
-                        with engine.begin() as inner:
-                            join_queue(inner, event["id"], c["id"], student)
-                        st.rerun()
+        st.subheader("Prenota un nuovo slot")
+        comps = get_companies(conn, event["id"])
+        pick = st.selectbox("Scegli azienda", [c["name"] for c in comps])
+        comp_id = next(c["id"] for c in comps if c["name"] == pick)
+
+        booked = {b["slot"] for b in get_bookings(conn, event["id"], comp_id)}
+        slots = generate_slots()
+        available = [s for s in slots if s not in booked]
+
+        if not available:
+            st.warning("Nessuno slot disponibile per questa azienda")
+        else:
+            slot_choice = st.selectbox("Slot disponibili", available)
+            if st.button("Prenota slot"):
+                try:
+                    with engine.begin() as conn:
+                        book_slot(conn, event["id"], comp_id, student, slot_choice)
+                    st.success(f"Prenotato {slot_choice} con {pick}")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Errore: {ex}")
 
 elif role == "company":
     st.title("Area Azienda")
@@ -297,12 +273,14 @@ elif role == "company":
         st.error("Nessuna azienda associata all'utente.")
     else:
         with engine.begin() as conn:
-            name = conn.execute(
-                text("SELECT name FROM company WHERE id=:id"), {"id": cid}
-            ).scalar()
-            st.subheader(f"Coda – {name}")
-            df = roster_df(conn, event["id"], cid)
-            st.dataframe(df, use_container_width=True)
+            name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
+            st.subheader(f"Prenotazioni – {name}")
+            bookings = get_bookings(conn, event["id"], cid)
+            df = pd.DataFrame(bookings)
+            if df.empty:
+                st.info("Nessuna prenotazione")
+            else:
+                st.dataframe(df.sort_values("slot"), use_container_width=True)
 
 elif role == "admin":
     st.title("Area Admin")
@@ -311,8 +289,12 @@ elif role == "admin":
         companies = get_companies(conn, event["id"])
         for c in companies:
             st.markdown(f"### {c['name']}")
-            df = roster_df(conn, event["id"], c["id"])
-            st.dataframe(df, use_container_width=True)
+            bookings = get_bookings(conn, event["id"], c["id"])
+            df = pd.DataFrame(bookings)
+            if df.empty:
+                st.info("Nessuna prenotazione")
+            else:
+                st.dataframe(df.sort_values("slot"), use_container_width=True)
 
     st.markdown("---")
     st.subheader("Aggiungi nuova azienda")
@@ -325,20 +307,6 @@ elif role == "admin":
                 st.rerun()
             else:
                 st.error(msg)
-
-    st.markdown("---")
-    st.subheader("Gestione demo")
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Reset code (tutte le code vuote)"):
-            with engine.begin() as conn:
-                conn.execute(text("DELETE FROM queue_entry"))
-            st.success("Code svuotate")
-    with col2:
-        if st.button("Reset check-in"):
-            with engine.begin() as conn:
-                conn.execute(text("DELETE FROM checkin"))
-            st.success("Check-in cancellati")
 
 else:
     st.error("Ruolo sconosciuto. Eseguire logout e nuovo login.")
