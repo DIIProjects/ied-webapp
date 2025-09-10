@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -60,6 +59,7 @@ SEED = [
     ("INSERT OR IGNORE INTO company (name) VALUES ('Stellantis')", {}),
     ("INSERT OR IGNORE INTO event_company (event_id, company_id) SELECT 1, c.id FROM company c", {}),
     ("INSERT OR IGNORE INTO company_user (company_id, email, password) SELECT c.id, 'hr@eni.com', 'eni123' FROM company c WHERE c.name='ENI'", {}),
+    ("INSERT OR IGNORE INTO company_user (company_id, email, password) SELECT c.id, 'leonardo.pasquato@gmail.com', 'cicciopasticcio' FROM company c WHERE c.name='Leonardo'", {}),
 ]
 
 def init_db():
@@ -135,7 +135,7 @@ def roster_df(conn, event_id, company_id):
     return pd.DataFrame(rows)
 
 def find_company_user(conn, email, password):
-    q = text("SELECT cu.id, cu.company_id, cu.email, c.name as company_name FROM company_user cu JOIN company c ON c.id=cu.company_id WHERE cu.email=:e AND cu.password=:p LIMIT 1")
+    q = text("SELECT cu.company_id, cu.email, c.name as company_name FROM company_user cu JOIN company c ON c.id=cu.company_id WHERE cu.email=:e AND cu.password=:p LIMIT 1")
     return conn.execute(q, {"e": email.strip().lower(), "p": password}).mappings().first()
 
 def add_company(conn, name):
@@ -157,66 +157,55 @@ def reset_session():
         if k in st.session_state:
             del st.session_state[k]
 
-def login_view():
+# ------------------- AUTH -------------------
+def authenticate(email, password):
+    if email == ADMIN_USER and password == ADMIN_PASS:
+        return {"role": "admin", "email": "admin@local"}
+    with engine.begin() as conn:
+        cu = find_company_user(conn, email, password)
+    if cu:
+        return {"role": "company", "email": cu["email"], "company_id": cu["company_id"]}
+    if email.endswith("@unitn.it") and password:
+        return {"role": "student", "email": email, "student_name": email.split("@")[0]}
+    return None
+
+# ------------------- UI -------------------
+st.set_page_config(page_title="Industrial Engineering Day", page_icon="🎓", layout="centered")
+init_db()
+
+with engine.begin() as conn:
+    event = get_active_event(conn)
+
+if "role" not in st.session_state:
     st.header("Login")
-    tab_admin, tab_company, tab_student = st.tabs(["Admin", "Azienda", "Studente"])
-
-    with tab_admin:
-        u = st.text_input("Username", key="admin_user")
-        p = st.text_input("Password", type="password", key="admin_pass")
-        if st.button("Entra come Admin"):
-            if u == ADMIN_USER and p == ADMIN_PASS:
-                st.session_state["role"] = "admin"
-                st.session_state["email"] = "admin@local"
-                st.success("Login admin ok")
-                st.rerun()
-            else:
-                st.error("Credenziali admin non valide")
-
-    with tab_company:
-        email = st.text_input("Email aziendale", key="company_email")
-        pw = st.text_input("Password", type="password", key="company_pass")
-        if st.button("Entra come Azienda"):
-            with engine.begin() as conn:
-                cu = find_company_user(conn, email, pw)
-            if cu:
-                st.session_state["role"] = "company"
-                st.session_state["email"] = cu["email"]
-                st.session_state["company_id"] = cu["company_id"]
-                st.success(f"Login azienda: {cu['company_name']}")
-                st.rerun()
-            else:
-                st.error("Email o password non corretti")
-
-    with tab_student:
-        st.write("**Login studente (UniTN)**")
-        if AUTH_MODE == "prod":
-            st.markdown("- In produzione, configurare SSO UniTN (OIDC/SAML) e redirezionare qui dopo il login.")
-        email = st.text_input("Email accademica (@unitn.it)", key="student_email")
-        pw = st.text_input("Password (solo demo; SSO in produzione)", type="password", key="student_pw")
-        if st.button("Entra come Studente"):
-            if email.strip().lower().endswith("@unitn.it") and pw:
-                st.session_state["role"] = "student"
-                st.session_state["email"] = email.strip().lower()
-                st.session_state["student_name"] = email.split("@")[0]
-                st.success("Login studente ok")
-                st.rerun()
-            else:
-                st.error("Usa un'email @unitn.it e inserisci la password (demo).")
-
-def topbar():
-    col1, col2 = st.columns([3,1])
-    with col1:
-        st.caption(f"Utente: {st.session_state.get('email','ospite')} • Ruolo: {st.session_state.get('role','none')}")
-    with col2:
-        if st.button("Logout"):
-            reset_session()
+    email = st.text_input("Email")
+    pw = st.text_input("Password", type="password")
+    if st.button("Login"):
+        user = authenticate(email.strip().lower(), pw.strip())
+        if user:
+            for k,v in user.items():
+                st.session_state[k] = v
+            st.success("Login effettuato")
             st.rerun()
+        else:
+            st.error("Credenziali non valide")
+    st.stop()
 
-def student_page(event):
+# --- topbar ---
+col1, col2 = st.columns([3,1])
+with col1:
+    st.caption(f"Utente: {st.session_state.get('email','ospite')} • Ruolo: {st.session_state.get('role','none')}")
+with col2:
+    if st.button("Logout"):
+        reset_session()
+        st.rerun()
+
+# --- pages ---
+role = st.session_state["role"]
+if role == "student":
+    student = st.session_state.get("student_name") or st.session_state["email"]
     st.title("Area Studente")
     with engine.begin() as conn:
-        student = st.session_state.get("student_name") or st.session_state.get("email")
         st.subheader("Check-in")
         checked = is_checked_in(conn, event["id"], student)
         colA, colB = st.columns(2)
@@ -252,19 +241,19 @@ def student_page(event):
                             join_queue(inner, event["id"], c["id"], student)
                         st.rerun()
 
-def company_page(event):
+elif role == "company":
     st.title("Area Azienda")
     cid = st.session_state.get("company_id")
     if not cid:
         st.error("Nessuna azienda associata all'utente.")
-        return
-    with engine.begin() as conn:
-        name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
-        st.subheader(f"Coda – {name}")
-        df = roster_df(conn, event["id"], cid)
-        st.dataframe(df, use_container_width=True)
+    else:
+        with engine.begin() as conn:
+            name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
+            st.subheader(f"Coda – {name}")
+            df = roster_df(conn, event["id"], cid)
+            st.dataframe(df, use_container_width=True)
 
-def admin_page(event):
+elif role == "admin":
     st.title("Area Admin")
     st.subheader("Rosters (tutte le aziende)")
     with engine.begin() as conn:
@@ -300,31 +289,5 @@ def admin_page(event):
                 conn.execute(text("DELETE FROM checkin"))
             st.success("Check-in cancellati")
 
-st.set_page_config(page_title="Industrial Engineering Day", page_icon="🎓", layout="centered")
-init_db()
-
-with engine.begin() as conn:
-    event = get_active_event(conn)
-
-if "role" not in st.session_state:
-    login_view()
-    st.stop()
-
-topbar()
-
-role = st.session_state["role"]
-if role == "student":
-    student_page(event)
-elif role == "company":
-    company_page(event)
-elif role == "admin":
-    admin_page(event)
 else:
     st.error("Ruolo sconosciuto. Eseguire logout e nuovo login.")
-
-# UniTN SSO notes:
-# For production, integrate UniTN OIDC/SAML and after successful login set:
-#   st.session_state["role"]="student"
-#   st.session_state["email"]=verified_email
-#   st.session_state["student_name"]=name
-# then call st.rerun().
