@@ -47,6 +47,13 @@ CREATE TABLE IF NOT EXISTS booking (
   slot TEXT NOT NULL,
   UNIQUE(event_id, company_id, slot)
 );
+CREATE TABLE IF NOT EXISTS interview_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  booking_id INTEGER NOT NULL UNIQUE,
+  start_time TEXT,
+  end_time TEXT,
+  status TEXT DEFAULT 'pending'
+);
 '''
 
 SEED = [
@@ -117,7 +124,7 @@ def generate_slots(start="09:00", end="17:00", step=15):
     return slots
 
 def get_bookings(conn, event_id, company_id):
-    q = text("SELECT slot, student FROM booking WHERE event_id=:e AND company_id=:c")
+    q = text("SELECT id, slot, student FROM booking WHERE event_id=:e AND company_id=:c")
     return list(conn.execute(q, {"e": event_id, "c": company_id}).mappings())
 
 def book_slot(conn, event_id, company_id, student, slot):
@@ -163,6 +170,35 @@ def reset_session():
         if k in st.session_state:
             del st.session_state[k]
 
+# --- Interview helpers ---
+def get_next_booking(conn, event_id, company_id):
+    now = datetime.now().strftime("%H:%M")
+    q = text("""SELECT b.id, b.slot, b.student
+                FROM booking b
+                WHERE b.event_id=:e AND b.company_id=:c AND b.slot >= :now
+                ORDER BY b.slot ASC LIMIT 1""")
+    return conn.execute(q, {"e": event_id, "c": company_id, "now": now}).mappings().first()
+
+def start_interview(conn, booking_id):
+    conn.execute(
+        text("""INSERT INTO interview_log (booking_id, start_time, status) 
+                VALUES (:b,:t,'active')
+                ON CONFLICT(booking_id) DO UPDATE SET start_time=:t, status='active'"""),
+        {"b": booking_id, "t": datetime.utcnow().isoformat()}
+    )
+
+def end_interview(conn, booking_id):
+    conn.execute(
+        text("UPDATE interview_log SET end_time=:t, status='done' WHERE booking_id=:b"),
+        {"b": booking_id, "t": datetime.utcnow().isoformat()}
+    )
+
+def mark_no_show(conn, booking_id):
+    conn.execute(
+        text("UPDATE interview_log SET status='no-show' WHERE booking_id=:b"),
+        {"b": booking_id}
+    )
+
 # ------------------- UI -------------------
 st.set_page_config(page_title="Industrial Engineering Day", page_icon="🎓", layout="centered")
 init_db()
@@ -180,14 +216,12 @@ if "role" not in st.session_state:
         email = st.text_input("Email", key="company_email")
         pw = st.text_input("Password", type="password", key="company_pass")
         if st.button("Entra", key="btn_company"):
-            # Admin
             if email == ADMIN_USER and pw == ADMIN_PASS:
                 st.session_state["role"] = "admin"
                 st.session_state["email"] = "admin@local"
                 st.success("Login admin ok")
                 st.rerun()
             else:
-                # Azienda
                 with engine.begin() as conn:
                     cu = find_company_user(conn, email, pw)
                 if cu:
@@ -208,7 +242,6 @@ if "role" not in st.session_state:
                 st.error("Usa un'email @unitn.it valida")
             else:
                 if AUTH_MODE == "dev":
-                    # Simulazione: login diretto
                     st.session_state["role"] = "student"
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
@@ -274,7 +307,25 @@ elif role == "company":
     else:
         with engine.begin() as conn:
             name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
-            st.subheader(f"Prenotazioni – {name}")
+
+            # prossimo colloquio
+            st.subheader(f"Prossimo colloquio – {name}")
+            next_b = get_next_booking(conn, event["id"], cid)
+            if next_b:
+                st.markdown(f"### 🕒 {next_b['slot']} – Studente: **{next_b['student']}**")
+                colA, colB = st.columns(2)
+                with colA:
+                    if st.button("▶️ Inizia colloquio", use_container_width=True):
+                        start_interview(conn, next_b["id"])
+                        st.rerun()
+                with colB:
+                    if st.button("⏹️ Termina colloquio", use_container_width=True):
+                        end_interview(conn, next_b["id"])
+                        st.rerun()
+            else:
+                st.info("Nessun colloquio imminente")
+
+            st.subheader("Prenotazioni – Lista completa")
             bookings = get_bookings(conn, event["id"], cid)
             df = pd.DataFrame(bookings)
             if df.empty:
