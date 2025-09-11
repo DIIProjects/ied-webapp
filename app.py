@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS interview_log (
   end_time TEXT,
   status TEXT DEFAULT 'pending'
 );
+CREATE TABLE IF NOT EXISTS notification (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id INTEGER NOT NULL,
+  company_id INTEGER NOT NULL,
+  student TEXT NOT NULL,
+  slot_from TEXT NOT NULL,
+  kind TEXT NOT NULL, -- 'early_finish' or others in future
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  read_at TEXT
+);
 '''
 
 SEED = [
@@ -127,6 +138,10 @@ def get_bookings(conn, event_id, company_id):
     q = text("SELECT id, slot, student FROM booking WHERE event_id=:e AND company_id=:c")
     return list(conn.execute(q, {"e": event_id, "c": company_id}).mappings())
 
+def get_booking_by_id(conn, booking_id):
+    q = text("SELECT id, event_id, company_id, student, slot FROM booking WHERE id=:id")
+    return conn.execute(q, {"id": booking_id}).mappings().first()
+
 def book_slot(conn, event_id, company_id, student, slot):
     conn.execute(
         text("INSERT INTO booking (event_id, company_id, student, slot) VALUES (:e,:c,:s,:slot)"),
@@ -170,6 +185,26 @@ def reset_session():
         if k in st.session_state:
             del st.session_state[k]
 
+# --- Notifications helpers ---
+def add_notification(conn, event_id, company_id, student, slot_from, kind, message):
+    conn.execute(
+        text("""INSERT INTO notification (event_id, company_id, student, slot_from, kind, message, created_at)
+                VALUES (:e,:c,:s,:slot,:k,:m,:t)"""),
+        {"e": event_id, "c": company_id, "s": student, "slot": slot_from,
+         "k": kind, "m": message, "t": datetime.utcnow().isoformat()}
+    )
+
+def get_unread_notifications(conn, event_id, student):
+    q = text("""SELECT id, company_id, slot_from, kind, message, created_at
+                FROM notification
+                WHERE event_id=:e AND student=:s AND read_at IS NULL
+                ORDER BY created_at DESC""")
+    return list(conn.execute(q, {"e": event_id, "s": student}).mappings())
+
+def mark_notification_read(conn, notif_id):
+    conn.execute(text("UPDATE notification SET read_at=:t WHERE id=:id"),
+                 {"t": datetime.utcnow().isoformat(), "id": notif_id})
+
 # --- Interview helpers ---
 def get_next_booking(conn, event_id, company_id):
     now = datetime.now().strftime("%H:%M")
@@ -188,10 +223,35 @@ def start_interview(conn, booking_id):
     )
 
 def end_interview(conn, booking_id):
+    # Close interview
+    now_iso = datetime.utcnow().isoformat()
     conn.execute(
         text("UPDATE interview_log SET end_time=:t, status='done' WHERE booking_id=:b"),
-        {"b": booking_id, "t": datetime.utcnow().isoformat()}
+        {"b": booking_id, "t": now_iso}
     )
+
+    # Check for early finish and notify next-slot student
+    b = get_booking_by_id(conn, booking_id)
+    if not b:
+        return
+    # Compute scheduled end of slot (15 minutes after slot start)
+    slot_start = datetime.strptime(b["slot"], "%H:%M")
+    slot_end = slot_start + timedelta(minutes=15)
+
+    # Convert now to same HH:MM domain by using only time portion for comparison
+    now_hm = datetime.strptime(datetime.now().strftime("%H:%M"), "%H:%M")
+
+    if now_hm < slot_end:
+        # Early finish -> notify next-slot student if exists
+        next_slot = (slot_start + timedelta(minutes=15)).strftime("%H:%M")
+        nxt = conn.execute(
+            text("""SELECT student FROM booking 
+                    WHERE event_id=:e AND company_id=:c AND slot=:s"""),
+            {"e": b["event_id"], "c": b["company_id"], "s": next_slot}
+        ).mappings().first()
+        if nxt:
+            msg = f"Lo slot precedente ({b['slot']}) con l'azienda è terminato in anticipo. Puoi presentarti ora."
+            add_notification(conn, b["event_id"], b["company_id"], nxt["student"], b["slot"], "early_finish", msg)
 
 def mark_no_show(conn, booking_id):
     conn.execute(
@@ -220,14 +280,12 @@ def get_bookings_with_logs(conn, event_id, company_id):
             return ""
         return ts[:19].replace("T", " ")
 
-    # Convert each RowMapping to a dict, then mutate safely
     rows = []
     for rm in raw_rows:
         d = dict(rm)
         d["start_time"] = fmt(d.get("start_time"))
         d["end_time"] = fmt(d.get("end_time"))
         rows.append(d)
-
     return rows
 
 # ------------------- UI -------------------
@@ -242,7 +300,7 @@ if "role" not in st.session_state:
     st.header("Industrial Engineering Day - Login page")
     tab_company, tab_student = st.tabs(["Company", "Student"])
 
-    # --- Azienda/Admin ---
+    # --- Company/Admin ---
     with tab_company:
         email = st.text_input("Email", key="company_email")
         pw = st.text_input("Password", type="password", key="company_pass")
@@ -264,7 +322,7 @@ if "role" not in st.session_state:
                 else:
                     st.error("Email o password non corretti")
 
-    # --- Studente ---
+    # --- Student ---
     with tab_student:
         st.write("**Login studente tramite UniTN**")
         email = st.text_input("Email accademica (@unitn.it)", key="student_email")
@@ -300,6 +358,17 @@ if role == "student":
     student = st.session_state.get("student_name") or st.session_state["email"]
     st.title("Area Studente")
     with engine.begin() as conn:
+        # --- Notifications banner ---
+        notifs = get_unread_notifications(conn, event["id"], student)
+        for n in notifs:
+            colA, colB = st.columns([4,1])
+            with colA:
+                st.info(f"🔔 {n['message']}")
+            with colB:
+                if st.button("Segna letta", key=f"read_{n['id']}"):
+                    mark_notification_read(conn, n["id"])
+                    st.rerun()
+
         st.subheader("Le mie prenotazioni")
         myb = get_student_bookings(conn, event["id"], student)
         if myb:
