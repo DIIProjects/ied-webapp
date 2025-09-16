@@ -553,61 +553,136 @@ elif role == "company":
     if not cid:
         st.error("Nessuna azienda associata all'utente.")
     else:
+        # 1) Letture (in un context dedicato)
         with engine.begin() as conn:
             name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
+            event_id = conn.execute(text("SELECT id FROM event WHERE is_active=1 LIMIT 1")).scalar()
+            next_b = conn.execute(text("""
+                SELECT b.id, b.slot, b.student
+                FROM booking b
+                WHERE b.event_id=:e AND b.company_id=:c AND b.slot >= :now
+                ORDER BY b.slot ASC LIMIT 1
+            """), {"e": event_id, "c": cid, "now": datetime.now().strftime("%H:%M")}).mappings().first()
 
-            # Prossimo colloquio
-            st.subheader(f"Prossimo colloquio – {name}")
-            next_b = get_next_booking(conn, event["id"], cid)
-            if next_b:
-                st.markdown(f"### 🕒 {next_b['slot']} – Studente: **{next_b['student']}**")
-                colA, colB = st.columns(2)
-                with colA:
-                    if st.button("▶️ Inizia colloquio", use_container_width=True):
-                        start_interview(conn, next_b["id"])
-                        st.rerun()
-                with colB:
-                    if st.button("⏹️ Termina colloquio", use_container_width=True):
-                        end_interview(conn, next_b["id"])
-                        st.rerun()
-            else:
-                st.info("Nessun colloquio imminente")
+        st.subheader(f"Prossimo colloquio – {name}")
+        if next_b:
+            st.markdown(f"### 🕒 {next_b['slot']} – Studente: **{next_b['student']}**")
+            colA, colB = st.columns(2)
 
-            # Tabella completa con stato/inizio/fine + CV
-            st.subheader("Prenotazioni – Lista completa")
-            rows = get_bookings_with_logs(conn, event["id"], cid)
-            df = pd.DataFrame(rows)
-            if df.empty:
-                st.info("Nessuna prenotazione")
-            else:
-                df_show = df.sort_values("slot")[["slot", "student", "cv", "status", "start_time", "end_time"]]
-                df_show = df_show.rename(columns={
-                    "slot": "Orario",
-                    "student": "Studente",
-                    "cv": "CV",
-                    "status": "Stato",
-                    "start_time": "Inizio",
-                    "end_time": "Fine"
-                })
-                st.dataframe(df_show, use_container_width=True)
+            # 2) Scritture su DB in context SEPARATI + chiavi uniche
+            with colA:
+                if st.button("▶️ Inizia colloquio", key=f"start_{next_b['id']}", use_container_width=True):
+                    with engine.begin() as wconn:
+                        wconn.execute(
+                            text("""
+                                INSERT INTO interview_log (booking_id, start_time, status)
+                                VALUES (:b, :t, 'active')
+                                ON CONFLICT(booking_id) DO UPDATE SET start_time=:t, status='active'
+                            """),
+                            {"b": next_b["id"], "t": datetime.utcnow().isoformat()}
+                        )
+                    st.rerun()
 
-                # Sezione download CV (uno per riga dove disponibile)
-                st.markdown("**Scarica CV (se disponibile)**")
-                for row in df.sort_values("slot").to_dict("records"):
-                    if row.get("cv_path"):
-                        path = row["cv_path"]
-                        label = f"{row['slot']} – {row['student']}"
-                        try:
-                            with open(path, "rb") as f:
-                                st.download_button(
-                                    label=f"📄 Scarica CV: {label}",
-                                    data=f.read(),
-                                    file_name=os.path.basename(path),
-                                    mime="application/pdf",
-                                    key=f"dl_{row['id']}"
-                                )
-                        except Exception:
-                            st.warning(f"CV non trovato su disco per {label}")
+            with colB:
+                if st.button("⏹️ Termina colloquio", key=f"end_{next_b['id']}", use_container_width=True):
+                    with engine.begin() as wconn:
+                        wconn.execute(
+                            text("UPDATE interview_log SET end_time=:t, status='done' WHERE booking_id=:b"),
+                            {"b": next_b["id"], "t": datetime.utcnow().isoformat()}
+                        )
+                        # Notifica eventuale slot successivo (riuso della tua logica)
+                        b = wconn.execute(
+                            text("SELECT event_id, company_id, slot FROM booking WHERE id=:id"),
+                            {"id": next_b["id"]}
+                        ).mappings().first()
+                        if b:
+                            slot_start = datetime.strptime(b["slot"], "%H:%M")
+                            slot_end = slot_start + timedelta(minutes=15)
+                            now_hm = datetime.strptime(datetime.now().strftime("%H:%M"), "%H:%M")
+                            if now_hm < slot_end:
+                                next_slot = (slot_start + timedelta(minutes=15)).strftime("%H:%M")
+                                nxt = wconn.execute(
+                                    text("""SELECT student FROM booking 
+                                            WHERE event_id=:e AND company_id=:c AND slot=:s"""),
+                                    {"e": b["event_id"], "c": b["company_id"], "s": next_slot}
+                                ).mappings().first()
+                                if nxt:
+                                    msg = f"Lo slot precedente ({b['slot']}) con l'azienda è terminato in anticipo. Puoi presentarti ora."
+                                    wconn.execute(
+                                        text("""INSERT INTO notification 
+                                                (event_id, company_id, student, slot_from, kind, message, created_at)
+                                                VALUES (:e,:c,:s,:slot,'early_finish',:m,:t)"""),
+                                        {"e": b["event_id"], "c": b["company_id"], "s": nxt["student"],
+                                         "slot": b["slot"], "m": msg, "t": datetime.utcnow().isoformat()}
+                                    )
+                    st.rerun()
+        else:
+            st.info("Nessun colloquio imminente")
+
+        # 3) Tabella prenotazioni + stato/inizio/fine (nuova lettura post-azione)
+        st.subheader("Prenotazioni – Lista completa")
+        with engine.begin() as conn:
+            rows = conn.execute(text("""
+                SELECT 
+                    b.id,
+                    b.slot,
+                    b.student,
+                    b.cv_path,
+                    COALESCE(il.status, 'pending') AS status,
+                    il.start_time,
+                    il.end_time
+                FROM booking b
+                LEFT JOIN interview_log il ON il.booking_id = b.id
+                WHERE b.event_id = :e AND b.company_id = :c
+                ORDER BY b.slot
+            """), {"e": event_id, "c": cid}).mappings().all()
+
+        def fmt(ts: str | None) -> str:
+            if not ts:
+                return ""
+            return ts[:19].replace("T", " ")
+
+        if not rows:
+            st.info("Nessuna prenotazione")
+        else:
+            df = pd.DataFrame([
+                {
+                    "Orario": r["slot"],
+                    "Studente": r["student"],
+                    "CV": "✅" if r["cv_path"] else "—",
+                    "Stato": r["status"],
+                    "Inizio": fmt(r["start_time"]),
+                    "Fine": fmt(r["end_time"]),
+                    "_id": r["id"],
+                    "_cv": r["cv_path"]
+                } for r in rows
+            ]).sort_values("Orario")
+            st.dataframe(df[["Orario","Studente","CV","Stato","Inizio","Fine"]], use_container_width=True)
+
+            st.markdown("**Scarica CV (se disponibile)**")
+            for r in df.to_dict("records"):
+                if r["_cv"]:
+                    try:
+                        with open(r["_cv"], "rb") as f:
+                            st.download_button(
+                                label=f"📄 Scarica CV: {r['Orario']} – {r['Studente']}",
+                                data=f.read(),
+                                file_name=os.path.basename(r["_cv"]),
+                                mime="application/pdf",
+                                key=f"dl_{r['_id']}"
+                            )
+                    except Exception:
+                        st.warning(f"CV non trovato su disco per {r['Orario']} – {r['Studente']}")
+
+        # (Facoltativo) Debug ultime righe interview_log
+        with engine.begin() as conn:
+            dbg = conn.execute(text("""
+                SELECT booking_id, start_time, end_time, status
+                FROM interview_log ORDER BY rowid DESC LIMIT 5
+            """)).mappings().all()
+        with st.expander("Debug interview_log"):
+            st.write(pd.DataFrame(dbg))
+
 
 elif role == "admin":
     st.title("Area Admin")
