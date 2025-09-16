@@ -2,3 +2,5 @@ streamlit>=1.36
 sqlalchemy>=2.0
 pandas>=2.2
 opencv-python
+requests
+beautifulsoup4
