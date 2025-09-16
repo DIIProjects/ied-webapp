@@ -6,6 +6,10 @@ import os
 import re
 import json
 import numpy as np
+from streamlit_autorefresh import st_autorefresh
+
+# --- 0) Refresh automatico ogni secondo ---
+st_autorefresh(interval=1000, key="timer_refresh")
 
 # Proviamo a importare OpenCV per la lettura QR
 try:
@@ -553,27 +557,21 @@ elif role == "company":
     if not cid:
         st.error("Nessuna azienda associata all'utente.")
     else:
-        # --- 1) Lettura nome azienda ed evento attivo ---
+        # 1) Lettura nome azienda ed evento attivo
         with engine.begin() as conn:
-            name = conn.execute(
-                text("SELECT name FROM company WHERE id=:id"), {"id": cid}
-            ).scalar()
-            event_id = conn.execute(
-                text("SELECT id FROM event WHERE is_active=1 LIMIT 1")
-            ).scalar()
+            name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
+            event_id = conn.execute(text("SELECT id FROM event WHERE is_active=1 LIMIT 1")).scalar()
 
-        # --- 2) Booking corrente / prossimo ---
+        # 2) Booking corrente / prossimo
         current_id = st.session_state.get("current_booking_id")
 
         if current_id:
-            # Booking in corso
             with engine.begin() as conn:
                 current_b = conn.execute(
                     text("SELECT b.id, b.slot, b.student FROM booking b WHERE b.id=:id"),
                     {"id": current_id}
                 ).mappings().first()
         else:
-            # Prossimo booking libero (status pending)
             with engine.begin() as conn:
                 current_b = conn.execute(
                     text("""
@@ -589,7 +587,7 @@ elif role == "company":
                     {"e": event_id, "c": cid}
                 ).mappings().first()
 
-        # --- 3) Mostra booking corrente / UI bottoni ---
+        # 3) Mostra booking corrente / bottoni
         st.subheader(f"Prossimo colloquio – {name}")
         if current_b:
             st.markdown(f"### 🕒 {current_b['slot']} – Studente: **{current_b['student']}**")
@@ -607,6 +605,7 @@ elif role == "company":
                         {"b": booking_id, "t": datetime.utcnow().isoformat()}
                     )
                 st.session_state["current_booking_id"] = booking_id
+                st.session_state["started_at"] = datetime.utcnow().isoformat()  # salva timer
 
             with colA:
                 st.button("▶️ Inizia colloquio", key=f"start_{current_b['id']}", on_click=on_start, use_container_width=True)
@@ -614,11 +613,12 @@ elif role == "company":
             # Bottone Termina
             def on_end(booking_id=current_b["id"]):
                 with engine.begin() as wconn:
+                    # 1) Termina colloquio
                     wconn.execute(
                         text("UPDATE interview_log SET end_time=:t, status='done' WHERE booking_id=:b"),
                         {"b": booking_id, "t": datetime.utcnow().isoformat()}
                     )
-                    # Notifica eventuale slot successivo (riuso logica esistente)
+                    # 2) Logica notifica slot successivo
                     b = wconn.execute(
                         text("SELECT event_id, company_id, slot FROM booking WHERE id=:id"),
                         {"id": booking_id}
@@ -643,15 +643,26 @@ elif role == "company":
                                     {"e": b["event_id"], "c": b["company_id"], "s": nxt["student"],
                                      "slot": b["slot"], "m": msg, "t": datetime.utcnow().isoformat()}
                                 )
-                # reset booking corrente per passare al prossimo
+                # 3) Reset booking corrente e timer
                 st.session_state.pop("current_booking_id", None)
+                st.session_state.pop("started_at", None)
 
             with colB:
                 st.button("⏹️ Termina colloquio", key=f"end_{current_b['id']}", on_click=on_end, use_container_width=True)
+
+            # 4) Timer live
+            started_iso = st.session_state.get("started_at")
+            if started_iso:
+                started_dt = datetime.fromisoformat(started_iso)
+                elapsed = datetime.utcnow() - started_dt
+                mins = elapsed.seconds // 60
+                secs = elapsed.seconds % 60
+                st.markdown(f"⏱ Colloquio in corso: {mins}m {secs}s")
+
         else:
             st.info("Nessun colloquio disponibile")
 
-        # --- 4) Tabella prenotazioni aggiornata ---
+        # 5) Tabella prenotazioni aggiornata
         st.subheader("Prenotazioni – Lista completa")
         with engine.begin() as conn:
             rows = conn.execute(text("""
@@ -706,7 +717,7 @@ elif role == "company":
                     except Exception:
                         st.warning(f"CV non trovato su disco per {r['Orario']} – {r['Studente']}")
 
-        # --- 5) Debug ultime righe interview_log (facoltativo) ---
+        # 6) Debug ultime righe interview_log (facoltativo)
         with engine.begin() as conn:
             dbg = conn.execute(text("""
                 SELECT booking_id, start_time, end_time, status
