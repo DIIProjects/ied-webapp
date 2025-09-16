@@ -3,7 +3,6 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
 import os
-import io
 import re
 import json
 import numpy as np
@@ -22,6 +21,7 @@ ADMIN_USER = "admin"
 ADMIN_PASS = "lasolita"
 
 ATTENDANCE_CSV = "presenze.csv"  # CSV dove salviamo le presenze da QR
+CV_DIR = "cv"
 
 engine = create_engine(DB_URL, future=True)
 
@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS booking (
   company_id INTEGER NOT NULL,
   student TEXT NOT NULL,
   slot TEXT NOT NULL,
+  -- nuove colonne per CV (aggiunte via migrazione se non presenti)
+  cv_path TEXT,
+  cv_uploaded_at TEXT,
   UNIQUE(event_id, company_id, slot)
 );
 CREATE TABLE IF NOT EXISTS interview_log (
@@ -102,6 +105,21 @@ def init_db():
                 conn.execute(text(s))
         for q, p in SEED:
             conn.execute(text(q), p)
+
+def migrate_db():
+    """Tenta di aggiungere le colonne per il CV se non esistono già."""
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE booking ADD COLUMN cv_path TEXT"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE booking ADD COLUMN cv_uploaded_at TEXT"))
+        except Exception:
+            pass
+
+def ensure_dirs():
+    os.makedirs(CV_DIR, exist_ok=True)
 
 def get_active_event(conn):
     return conn.execute(
@@ -149,17 +167,46 @@ def generate_slots(start="09:00", end="17:00", step=15):
     return slots
 
 def get_bookings(conn, event_id, company_id):
-    q = text("SELECT id, slot, student FROM booking WHERE event_id=:e AND company_id=:c")
+    q = text("SELECT id, slot, student, cv_path FROM booking WHERE event_id=:e AND company_id=:c")
     return list(conn.execute(q, {"e": event_id, "c": company_id}).mappings())
 
 def get_booking_by_id(conn, booking_id):
-    q = text("SELECT id, event_id, company_id, student, slot FROM booking WHERE id=:id")
+    q = text("SELECT id, event_id, company_id, student, slot, cv_path FROM booking WHERE id=:id")
     return conn.execute(q, {"id": booking_id}).mappings().first()
 
-def book_slot(conn, event_id, company_id, student, slot):
+def sanitize_filename(s: str) -> str:
+    s = s.strip().lower()
+    s = re.sub(r"[^a-z0-9._-]+", "_", s)
+    return s[:120]
+
+def build_cv_filename(event_id: int, company_id: int, student: str, slot: str, orig_name: str | None) -> str:
+    base = f"e{event_id}_c{company_id}_{sanitize_filename(student)}_{slot.replace(':','')}"
+    ext = ".pdf"
+    if orig_name and orig_name.lower().endswith(".pdf"):
+        ext = ".pdf"
+    # timestamp per unicità
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+    return os.path.join(CV_DIR, f"{base}_{ts}{ext}")
+
+def save_cv_file(file_uploader, event_id: int, company_id: int, student: str, slot: str) -> str | None:
+    """Salva il file PDF su disco e ritorna il path relativo, oppure None se non caricato."""
+    if not file_uploader:
+        return None
+    ensure_dirs()
+    fname = build_cv_filename(event_id, company_id, student, slot, file_uploader.name)
+    # Salva bytes
+    with open(fname, "wb") as f:
+        f.write(file_uploader.getbuffer())
+    return fname
+
+def book_slot(conn, event_id, company_id, student, slot, cv_path: str | None = None):
     conn.execute(
-        text("INSERT INTO booking (event_id, company_id, student, slot) VALUES (:e,:c,:s,:slot)"),
-        {"e": event_id, "c": company_id, "s": student, "slot": slot}
+        text("""INSERT INTO booking (event_id, company_id, student, slot, cv_path, cv_uploaded_at)
+                VALUES (:e,:c,:s,:slot,:cv,:t)"""),
+        {
+            "e": event_id, "c": company_id, "s": student, "slot": slot,
+            "cv": cv_path, "t": datetime.utcnow().isoformat() if cv_path else None
+        }
     )
 
 def get_student_bookings(conn, event_id, student):
@@ -274,6 +321,7 @@ def get_bookings_with_logs(conn, event_id, company_id):
             b.id,
             b.slot,
             b.student,
+            b.cv_path,
             COALESCE(il.status, 'pending') AS status,
             il.start_time,
             il.end_time
@@ -294,6 +342,7 @@ def get_bookings_with_logs(conn, event_id, company_id):
         d = dict(rm)
         d["start_time"] = fmt(d.get("start_time"))
         d["end_time"] = fmt(d.get("end_time"))
+        d["cv"] = "✅" if d.get("cv_path") else "—"
         rows.append(d)
     return rows
 
@@ -379,6 +428,8 @@ def append_attendance_csv(event_id: int, full_name: str, first_name: str, last_n
 # ------------------- UI -------------------
 st.set_page_config(page_title="Industrial Engineering Day", page_icon="🎓", layout="centered")
 init_db()
+migrate_db()
+ensure_dirs()
 
 with engine.begin() as conn:
     event = get_active_event(conn)
@@ -478,11 +529,20 @@ if role == "student":
             st.warning("Nessuno slot disponibile per questa azienda")
         else:
             slot_choice = st.selectbox("Slot disponibili", available)
+
+            # --- Upload CV opzionale ---
+            st.caption("Carica il tuo CV (PDF, opzionale)")
+            cv_file = st.file_uploader("Curriculum (PDF)", type=["pdf"], key="cv_upload")
+
             if st.button("Prenota slot"):
                 try:
+                    cv_path = save_cv_file(cv_file, event["id"], comp_id, student, slot_choice)
                     with engine.begin() as conn:
-                        book_slot(conn, event["id"], comp_id, student, slot_choice)
-                    st.success(f"Prenotato {slot_choice} con {pick}")
+                        book_slot(conn, event["id"], comp_id, student, slot_choice, cv_path)
+                    if cv_path:
+                        st.success(f"Prenotato {slot_choice} con {pick}. CV caricato.")
+                    else:
+                        st.success(f"Prenotato {slot_choice} con {pick}.")
                     st.rerun()
                 except Exception as ex:
                     st.error(f"Errore: {ex}")
@@ -513,22 +573,41 @@ elif role == "company":
             else:
                 st.info("Nessun colloquio imminente")
 
-            # Tabella completa con stato/inizio/fine
+            # Tabella completa con stato/inizio/fine + CV
             st.subheader("Prenotazioni – Lista completa")
             rows = get_bookings_with_logs(conn, event["id"], cid)
             df = pd.DataFrame(rows)
             if df.empty:
                 st.info("Nessuna prenotazione")
             else:
-                df = df.sort_values("slot")[["slot", "student", "status", "start_time", "end_time"]]
-                df = df.rename(columns={
+                df_show = df.sort_values("slot")[["slot", "student", "cv", "status", "start_time", "end_time"]]
+                df_show = df_show.rename(columns={
                     "slot": "Orario",
                     "student": "Studente",
+                    "cv": "CV",
                     "status": "Stato",
                     "start_time": "Inizio",
                     "end_time": "Fine"
                 })
-                st.dataframe(df, use_container_width=True)
+                st.dataframe(df_show, use_container_width=True)
+
+                # Sezione download CV (uno per riga dove disponibile)
+                st.markdown("**Scarica CV (se disponibile)**")
+                for row in df.sort_values("slot").to_dict("records"):
+                    if row.get("cv_path"):
+                        path = row["cv_path"]
+                        label = f"{row['slot']} – {row['student']}"
+                        try:
+                            with open(path, "rb") as f:
+                                st.download_button(
+                                    label=f"📄 Scarica CV: {label}",
+                                    data=f.read(),
+                                    file_name=os.path.basename(path),
+                                    mime="application/pdf",
+                                    key=f"dl_{row['id']}"
+                                )
+                        except Exception:
+                            st.warning(f"CV non trovato su disco per {label}")
 
 elif role == "admin":
     st.title("Area Admin")
@@ -547,15 +626,16 @@ elif role == "admin":
                 if df.empty:
                     st.info("Nessuna prenotazione")
                 else:
-                    df = df.sort_values("slot")[["slot", "student", "status", "start_time", "end_time"]]
-                    df = df.rename(columns={
+                    df_show = df.sort_values("slot")[["slot", "student", "cv", "status", "start_time", "end_time"]]
+                    df_show = df_show.rename(columns={
                         "slot": "Orario",
                         "student": "Studente",
+                        "cv": "CV",
                         "status": "Stato",
                         "start_time": "Inizio",
                         "end_time": "Fine"
                     })
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df_show, use_container_width=True)
 
     with tab_add_company:
         st.subheader("Aggiungi nuova azienda")
