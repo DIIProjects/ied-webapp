@@ -2,12 +2,26 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
+import os
+import io
+import re
+import json
+import numpy as np
+
+# Proviamo a importare OpenCV per la lettura QR
+try:
+    import cv2
+    HAS_CV2 = True
+except Exception:
+    HAS_CV2 = False
 
 DB_URL = "sqlite:///ieday.db"
 AUTH_MODE = "dev"  # "dev" simple forms; "prod" integrate UniTN SSO
 
 ADMIN_USER = "admin"
 ADMIN_PASS = "lasolita"
+
+ATTENDANCE_CSV = "presenze.csv"  # CSV dove salviamo le presenze da QR
 
 engine = create_engine(DB_URL, future=True)
 
@@ -60,7 +74,7 @@ CREATE TABLE IF NOT EXISTS notification (
   company_id INTEGER NOT NULL,
   student TEXT NOT NULL,
   slot_from TEXT NOT NULL,
-  kind TEXT NOT NULL, -- 'early_finish' or others in future
+  kind TEXT NOT NULL,
   message TEXT NOT NULL,
   created_at TEXT NOT NULL,
   read_at TEXT
@@ -234,15 +248,10 @@ def end_interview(conn, booking_id):
     b = get_booking_by_id(conn, booking_id)
     if not b:
         return
-    # Compute scheduled end of slot (15 minutes after slot start)
     slot_start = datetime.strptime(b["slot"], "%H:%M")
     slot_end = slot_start + timedelta(minutes=15)
-
-    # Convert now to same HH:MM domain by using only time portion for comparison
     now_hm = datetime.strptime(datetime.now().strftime("%H:%M"), "%H:%M")
-
     if now_hm < slot_end:
-        # Early finish -> notify next-slot student if exists
         next_slot = (slot_start + timedelta(minutes=15)).strftime("%H:%M")
         nxt = conn.execute(
             text("""SELECT student FROM booking 
@@ -287,6 +296,85 @@ def get_bookings_with_logs(conn, event_id, company_id):
         d["end_time"] = fmt(d.get("end_time"))
         rows.append(d)
     return rows
+
+# --- QR helpers (admin) ---
+def decode_qr_from_image_bytes(image_bytes: bytes) -> list[str]:
+    """Return list of decoded QR strings using OpenCV; empty if none/if cv2 missing."""
+    if not HAS_CV2:
+        return []
+    arr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        return []
+    detector = cv2.QRCodeDetector()
+    data, points, _ = detector.detectAndDecode(img)
+    if data:
+        return [data]
+    # Support multiple (rare): try detectAndDecodeMulti if available
+    if hasattr(detector, "detectAndDecodeMulti"):
+        ok, decoded_info, _, _ = detector.detectAndDecodeMulti(img)
+        if ok and decoded_info:
+            return [s for s in decoded_info if s]
+    return []
+
+def parse_name_from_qr_text(qr_text: str) -> tuple[str, str, str]:
+    """
+    Try to extract (full_name, first_name, last_name) from QR content.
+    Supports plain 'Nome Cognome', JSON {"givenName": "...","familyName":"..."} or vCard FN:.
+    Falls back to raw text as full_name.
+    """
+    text = qr_text.strip()
+
+    # JSON
+    try:
+        obj = json.loads(text)
+        gn = obj.get("givenName") or obj.get("name") or ""
+        fn = obj.get("familyName") or obj.get("surname") or ""
+        full = (gn + " " + fn).strip() or obj.get("fullName") or ""
+        if full:
+            return full, gn, fn
+    except Exception:
+        pass
+
+    # vCard FN:
+    m = re.search(r"^FN:(.+)$", text, flags=re.MULTILINE)
+    if m:
+        full = m.group(1).strip()
+        parts = full.split()
+        if len(parts) >= 2:
+            return full, " ".join(parts[:-1]), parts[-1]
+        return full, full, ""
+
+    # Plain "Nome Cognome ..."
+    parts = re.split(r"\s+", text)
+    if len(parts) >= 2:
+        first = " ".join(parts[:-1])
+        last = parts[-1]
+        return text, first, last
+
+    # Fallback
+    return text, text, ""
+
+def append_attendance_csv(event_id: int, full_name: str, first_name: str, last_name: str, raw_qr: str):
+    row = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "event_id": event_id,
+        "full_name": full_name,
+        "first_name": first_name,
+        "last_name": last_name,
+        "raw_qr": raw_qr,
+        "source": "qr"
+    }
+    df_new = pd.DataFrame([row])
+    if os.path.exists(ATTENDANCE_CSV):
+        try:
+            df_old = pd.read_csv(ATTENDANCE_CSV)
+            df = pd.concat([df_old, df_new], ignore_index=True)
+        except Exception:
+            df = df_new
+    else:
+        df = df_new
+    df.to_csv(ATTENDANCE_CSV, index=False)
 
 # ------------------- UI -------------------
 st.set_page_config(page_title="Industrial Engineering Day", page_icon="🎓", layout="centered")
@@ -444,37 +532,75 @@ elif role == "company":
 
 elif role == "admin":
     st.title("Area Admin")
-    st.subheader("Rosters (tutte le aziende)")
-    with engine.begin() as conn:
-        companies = get_companies(conn, event["id"])
-        for c in companies:
-            st.markdown(f"### {c['name']}")
-            rows = get_bookings_with_logs(conn, event["id"], c["id"])
-            df = pd.DataFrame(rows)
-            if df.empty:
-                st.info("Nessuna prenotazione")
-            else:
-                df = df.sort_values("slot")[["slot", "student", "status", "start_time", "end_time"]]
-                df = df.rename(columns={
-                    "slot": "Orario",
-                    "student": "Studente",
-                    "status": "Stato",
-                    "start_time": "Inizio",
-                    "end_time": "Fine"
-                })
-                st.dataframe(df, use_container_width=True)
 
-    st.markdown("---")
-    st.subheader("Aggiungi nuova azienda")
-    with engine.begin() as conn:
-        new_name = st.text_input("Nome azienda", key="new_company_name")
-        if st.button("Aggiungi"):
-            ok, msg = add_company(conn, new_name)
-            if ok:
-                st.success(msg)
-                st.rerun()
-            else:
-                st.error(msg)
+    # --- Admin tabs ---
+    tab_rosters, tab_add_company, tab_qr = st.tabs(["Rosters", "Aggiungi azienda", "Scanner QR (presenze)"])
+
+    with tab_rosters:
+        st.subheader("Rosters (tutte le aziende)")
+        with engine.begin() as conn:
+            companies = get_companies(conn, event["id"])
+            for c in companies:
+                st.markdown(f"### {c['name']}")
+                rows = get_bookings_with_logs(conn, event["id"], c["id"])
+                df = pd.DataFrame(rows)
+                if df.empty:
+                    st.info("Nessuna prenotazione")
+                else:
+                    df = df.sort_values("slot")[["slot", "student", "status", "start_time", "end_time"]]
+                    df = df.rename(columns={
+                        "slot": "Orario",
+                        "student": "Studente",
+                        "status": "Stato",
+                        "start_time": "Inizio",
+                        "end_time": "Fine"
+                    })
+                    st.dataframe(df, use_container_width=True)
+
+    with tab_add_company:
+        st.subheader("Aggiungi nuova azienda")
+        with engine.begin() as conn:
+            new_name = st.text_input("Nome azienda", key="new_company_name")
+            if st.button("Aggiungi"):
+                ok, msg = add_company(conn, new_name)
+                if ok:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    with tab_qr:
+        st.subheader("Scanner QR (presenze studenti)")
+        if not HAS_CV2:
+            st.error("OpenCV non è installato. Aggiungi 'opencv-python' al requirements.txt e riprova.")
+        else:
+            st.caption("Scansiona il QR dall'app dell'università (o carica un'immagine).")
+            cam_img = st.camera_input("Apri la fotocamera per scannerizzare il QR")
+            up_img = st.file_uploader("Oppure carica un'immagine", type=["png", "jpg", "jpeg"])
+
+            image_bytes = None
+            if cam_img is not None:
+                image_bytes = cam_img.getvalue()
+            elif up_img is not None:
+                image_bytes = up_img.read()
+
+            if image_bytes:
+                decoded_list = decode_qr_from_image_bytes(image_bytes)
+                if not decoded_list:
+                    st.warning("Nessun QR rilevato nell'immagine.")
+                else:
+                    for idx, payload in enumerate(decoded_list, start=1):
+                        full_name, first_name, last_name = parse_name_from_qr_text(payload)
+                        st.success(f"QR #{idx} letto ✅")
+                        st.write(f"**Nome completo:** {full_name}")
+                        st.write(f"**Nome:** {first_name} — **Cognome:** {last_name}")
+                        if st.button(f"Registra presenza (QR #{idx})"):
+                            with engine.begin() as conn:
+                                append_attendance_csv(event["id"], full_name, first_name, last_name, payload)
+                            st.success(f"Presenza registrata su {ATTENDANCE_CSV}")
+
+elif role == "unknown":
+    st.error("Ruolo sconosciuto. Eseguire logout e nuovo login.")
 
 else:
     st.error("Ruolo sconosciuto. Eseguire logout e nuovo login.")
