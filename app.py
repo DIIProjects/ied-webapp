@@ -553,73 +553,105 @@ elif role == "company":
     if not cid:
         st.error("Nessuna azienda associata all'utente.")
     else:
-        # 1) Letture (in un context dedicato)
+        # --- 1) Lettura nome azienda ed evento attivo ---
         with engine.begin() as conn:
-            name = conn.execute(text("SELECT name FROM company WHERE id=:id"), {"id": cid}).scalar()
-            event_id = conn.execute(text("SELECT id FROM event WHERE is_active=1 LIMIT 1")).scalar()
-            next_b = conn.execute(text("""
-                SELECT b.id, b.slot, b.student
-                FROM booking b
-                WHERE b.event_id=:e AND b.company_id=:c AND b.slot >= :now
-                ORDER BY b.slot ASC LIMIT 1
-            """), {"e": event_id, "c": cid, "now": datetime.now().strftime("%H:%M")}).mappings().first()
+            name = conn.execute(
+                text("SELECT name FROM company WHERE id=:id"), {"id": cid}
+            ).scalar()
+            event_id = conn.execute(
+                text("SELECT id FROM event WHERE is_active=1 LIMIT 1")
+            ).scalar()
 
+        # --- 2) Booking corrente / prossimo ---
+        current_id = st.session_state.get("current_booking_id")
+
+        if current_id:
+            # Booking in corso
+            with engine.begin() as conn:
+                current_b = conn.execute(
+                    text("SELECT b.id, b.slot, b.student FROM booking b WHERE b.id=:id"),
+                    {"id": current_id}
+                ).mappings().first()
+        else:
+            # Prossimo booking libero (status pending)
+            with engine.begin() as conn:
+                current_b = conn.execute(
+                    text("""
+                        SELECT b.id, b.slot, b.student
+                        FROM booking b
+                        LEFT JOIN interview_log il ON il.booking_id = b.id
+                        WHERE b.event_id = :e
+                          AND b.company_id = :c
+                          AND (il.status IS NULL OR il.status='pending')
+                        ORDER BY b.slot ASC
+                        LIMIT 1
+                    """),
+                    {"e": event_id, "c": cid}
+                ).mappings().first()
+
+        # --- 3) Mostra booking corrente / UI bottoni ---
         st.subheader(f"Prossimo colloquio – {name}")
-        if next_b:
-            st.markdown(f"### 🕒 {next_b['slot']} – Studente: **{next_b['student']}**")
+        if current_b:
+            st.markdown(f"### 🕒 {current_b['slot']} – Studente: **{current_b['student']}**")
             colA, colB = st.columns(2)
 
-            # 2) Scritture su DB in context SEPARATI + chiavi uniche
+            # Bottone Inizia
+            def on_start(booking_id=current_b["id"]):
+                with engine.begin() as wconn:
+                    wconn.execute(
+                        text("""
+                            INSERT INTO interview_log (booking_id, start_time, status)
+                            VALUES (:b, :t, 'active')
+                            ON CONFLICT(booking_id) DO UPDATE SET start_time=:t, status='active'
+                        """),
+                        {"b": booking_id, "t": datetime.utcnow().isoformat()}
+                    )
+                st.session_state["current_booking_id"] = booking_id
+
             with colA:
-                if st.button("▶️ Inizia colloquio", key=f"start_{next_b['id']}", use_container_width=True):
-                    with engine.begin() as wconn:
-                        wconn.execute(
-                            text("""
-                                INSERT INTO interview_log (booking_id, start_time, status)
-                                VALUES (:b, :t, 'active')
-                                ON CONFLICT(booking_id) DO UPDATE SET start_time=:t, status='active'
-                            """),
-                            {"b": next_b["id"], "t": datetime.utcnow().isoformat()}
-                        )
-                    st.rerun()
+                st.button("▶️ Inizia colloquio", key=f"start_{current_b['id']}", on_click=on_start, use_container_width=True)
+
+            # Bottone Termina
+            def on_end(booking_id=current_b["id"]):
+                with engine.begin() as wconn:
+                    wconn.execute(
+                        text("UPDATE interview_log SET end_time=:t, status='done' WHERE booking_id=:b"),
+                        {"b": booking_id, "t": datetime.utcnow().isoformat()}
+                    )
+                    # Notifica eventuale slot successivo (riuso logica esistente)
+                    b = wconn.execute(
+                        text("SELECT event_id, company_id, slot FROM booking WHERE id=:id"),
+                        {"id": booking_id}
+                    ).mappings().first()
+                    if b:
+                        slot_start = datetime.strptime(b["slot"], "%H:%M")
+                        slot_end = slot_start + timedelta(minutes=15)
+                        now_hm = datetime.strptime(datetime.now().strftime("%H:%M"), "%H:%M")
+                        if now_hm < slot_end:
+                            next_slot = (slot_start + timedelta(minutes=15)).strftime("%H:%M")
+                            nxt = wconn.execute(
+                                text("""SELECT student FROM booking 
+                                        WHERE event_id=:e AND company_id=:c AND slot=:s"""),
+                                {"e": b["event_id"], "c": b["company_id"], "s": next_slot}
+                            ).mappings().first()
+                            if nxt:
+                                msg = f"Lo slot precedente ({b['slot']}) con l'azienda è terminato in anticipo. Puoi presentarti ora."
+                                wconn.execute(
+                                    text("""INSERT INTO notification 
+                                            (event_id, company_id, student, slot_from, kind, message, created_at)
+                                            VALUES (:e,:c,:s,:slot,'early_finish',:m,:t)"""),
+                                    {"e": b["event_id"], "c": b["company_id"], "s": nxt["student"],
+                                     "slot": b["slot"], "m": msg, "t": datetime.utcnow().isoformat()}
+                                )
+                # reset booking corrente per passare al prossimo
+                st.session_state.pop("current_booking_id", None)
 
             with colB:
-                if st.button("⏹️ Termina colloquio", key=f"end_{next_b['id']}", use_container_width=True):
-                    with engine.begin() as wconn:
-                        wconn.execute(
-                            text("UPDATE interview_log SET end_time=:t, status='done' WHERE booking_id=:b"),
-                            {"b": next_b["id"], "t": datetime.utcnow().isoformat()}
-                        )
-                        # Notifica eventuale slot successivo (riuso della tua logica)
-                        b = wconn.execute(
-                            text("SELECT event_id, company_id, slot FROM booking WHERE id=:id"),
-                            {"id": next_b["id"]}
-                        ).mappings().first()
-                        if b:
-                            slot_start = datetime.strptime(b["slot"], "%H:%M")
-                            slot_end = slot_start + timedelta(minutes=15)
-                            now_hm = datetime.strptime(datetime.now().strftime("%H:%M"), "%H:%M")
-                            if now_hm < slot_end:
-                                next_slot = (slot_start + timedelta(minutes=15)).strftime("%H:%M")
-                                nxt = wconn.execute(
-                                    text("""SELECT student FROM booking 
-                                            WHERE event_id=:e AND company_id=:c AND slot=:s"""),
-                                    {"e": b["event_id"], "c": b["company_id"], "s": next_slot}
-                                ).mappings().first()
-                                if nxt:
-                                    msg = f"Lo slot precedente ({b['slot']}) con l'azienda è terminato in anticipo. Puoi presentarti ora."
-                                    wconn.execute(
-                                        text("""INSERT INTO notification 
-                                                (event_id, company_id, student, slot_from, kind, message, created_at)
-                                                VALUES (:e,:c,:s,:slot,'early_finish',:m,:t)"""),
-                                        {"e": b["event_id"], "c": b["company_id"], "s": nxt["student"],
-                                         "slot": b["slot"], "m": msg, "t": datetime.utcnow().isoformat()}
-                                    )
-                    st.rerun()
+                st.button("⏹️ Termina colloquio", key=f"end_{current_b['id']}", on_click=on_end, use_container_width=True)
         else:
-            st.info("Nessun colloquio imminente")
+            st.info("Nessun colloquio disponibile")
 
-        # 3) Tabella prenotazioni + stato/inizio/fine (nuova lettura post-azione)
+        # --- 4) Tabella prenotazioni aggiornata ---
         st.subheader("Prenotazioni – Lista completa")
         with engine.begin() as conn:
             rows = conn.execute(text("""
@@ -674,7 +706,7 @@ elif role == "company":
                     except Exception:
                         st.warning(f"CV non trovato su disco per {r['Orario']} – {r['Studente']}")
 
-        # (Facoltativo) Debug ultime righe interview_log
+        # --- 5) Debug ultime righe interview_log (facoltativo) ---
         with engine.begin() as conn:
             dbg = conn.execute(text("""
                 SELECT booking_id, start_time, end_time, status
