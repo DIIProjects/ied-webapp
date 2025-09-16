@@ -1,5 +1,5 @@
 
-# Industrial Engineering Day - Streamlit Auth MVP
+# Industrial Engineering Day - Streamlit
 
 Login roles:
 - **Admin**: user "admin", password "lasolita". Can view all rosters and add companies.
@@ -16,10 +16,11 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
+## Login
+* Companies: ENI, Leonardo, FCA, Stellantis, for demo use `hr@eni.com` / `eni123`
+* Admin: log in companies tab, use `admin` / `lasolita`
+* Student: log in student tab and use your `@unitn` mail. The SSO login is still in progress :)
+
 Seed:
 - Companies: ENI, Leonardo, FCA, Stellantis.
 - Demo company user: `hr@eni.com` / `eni123` (mapped to ENI).
-
-Security notes:
-- Passwords are stored in cleartext for demo. Replace with hashing (bcrypt/argon2) before production.
-- For SSO integration, read the comments in `app.py` (section AUTH / SSO).
