@@ -1,3 +1,5 @@
 /*.venv/
 /*cv/
 /*ieday.db
+/*.env
+/*.streamlit/
