@@ -392,3 +392,48 @@ def append_attendance_csv(event_id: int, full_name: str, first_name: str, last_n
     else:
         df = df_new
     df.to_csv(ATTENDANCE_CSV, index=False)
+
+# --- Running-late notifications (avoid duplicates/spam) ---
+def _find_running_late_notif(conn, event_id, company_id, student, slot_from):
+    q = text("""SELECT id, message, created_at
+                FROM notification
+                WHERE event_id=:e AND company_id=:c AND student=:s
+                  AND slot_from=:slot AND kind='running_late'
+                  AND read_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1""")
+    return conn.execute(q, {"e": event_id, "c": company_id, "s": student, "slot": slot_from}).mappings().first()
+
+def upsert_running_late_notification(conn, event_id, company_id, prev_slot, next_student, minutes_late: int):
+    """Crea o aggiorna una notifica 'running_late' per il prossimo studente."""
+    minutes_late = max(1, int(minutes_late))
+    msg = f"Lo slot precedente ({prev_slot}) sta sforando di {minutes_late} min."
+
+    existing = _find_running_late_notif(conn, event_id, company_id, next_student, prev_slot)
+    now_iso = datetime.utcnow().isoformat()
+
+    if existing:
+        # Aggiorna messaggio e timestamp solo se è cambiato il valore o se è 'vecchia' (>60s)
+        try:
+            last_ts = datetime.fromisoformat(str(existing["created_at"]))
+        except Exception:
+            last_ts = None
+        should_update = (existing["message"] != msg)
+        if last_ts:
+            dt = datetime.utcnow() - last_ts
+            if dt.total_seconds() > 60:
+                should_update = True
+        if should_update:
+            conn.execute(
+                text("UPDATE notification SET message=:m, created_at=:t WHERE id=:id"),
+                {"m": msg, "t": now_iso, "id": existing["id"]}
+            )
+    else:
+        conn.execute(
+            text("""INSERT INTO notification
+                    (event_id, company_id, student, slot_from, kind, message, created_at)
+                    VALUES (:e,:c,:s,:slot,'running_late',:m,:t)"""),
+            {"e": event_id, "c": company_id, "s": next_student,
+             "slot": prev_slot, "m": msg, "t": now_iso}
+        )
+

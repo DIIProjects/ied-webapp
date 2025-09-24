@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy import text
 from datetime import datetime, timedelta
 
-from core import engine, get_bookings_with_logs
+from core import engine, get_bookings_with_logs, upsert_running_late_notification
 
 def render_company(event):
     """Render the Company area (unchanged behavior)."""
@@ -51,6 +51,30 @@ def render_company(event):
                 """),
                 {"e": event_id, "c": cid}
             ).mappings().first()
+
+    # --- Se il colloquio corrente sfora il suo slot, avvisa il prossimo studente con i minuti di ritardo
+    if current_b:
+        with engine.begin() as wconn:
+            st_rec = wconn.execute(
+                text("SELECT COALESCE(status, 'pending') FROM interview_log WHERE booking_id=:b"),
+                {"b": current_b["id"]}
+            ).scalar()
+            if st_rec in ("pending", "active"):
+                slot_start = datetime.strptime(current_b["slot"], "%H:%M")
+                slot_end = slot_start + timedelta(minutes=15)
+                now_hm = datetime.strptime(datetime.now().strftime("%H:%M"), "%H:%M")
+                if now_hm > slot_end:
+                    minutes_late = int((now_hm - slot_end).total_seconds() // 60)
+                    next_slot = (slot_start + timedelta(minutes=15)).strftime("%H:%M")
+                    nxt = wconn.execute(
+                        text("""SELECT student FROM booking 
+                                WHERE event_id=:e AND company_id=:c AND slot=:s"""),
+                        {"e": event_id, "c": cid, "s": next_slot}
+                    ).mappings().first()
+                    if nxt:
+                        upsert_running_late_notification(
+                            wconn, event_id, cid, current_b["slot"], nxt["student"], minutes_late
+                        )
 
     st.subheader(f"Prossimo colloquio – {name}")
     if current_b:
