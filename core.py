@@ -82,10 +82,32 @@ CREATE TABLE IF NOT EXISTS notification (
 
 SEED = [
     ("INSERT OR IGNORE INTO event (id, name, is_active) VALUES (1, 'Industrial Engineering Day', 1)", {}),
-    ("INSERT OR IGNORE INTO company (name) VALUES ('ENI')", {}),
-    ("INSERT OR IGNORE INTO company (name) VALUES ('Leonardo')", {}),
-    ("INSERT OR IGNORE INTO company (name) VALUES ('FCA')", {}),
-    ("INSERT OR IGNORE INTO company (name) VALUES ('Stellantis')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('BLM Group')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('BM Group')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Biko Meccanica')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Capi Group')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Colorobbia (Industrie Bitossi)')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Coster')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Dalmec')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Danieli')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Donatoni')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Global Wafers (Memc)')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Gruppo Pittini')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('IIT hydrogen')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('La Sportiva')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Leitner')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Mahle')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Optoi')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Roechling')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Scania')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Tassullo')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Tenaris')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Turin Tech')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Vimar')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Zobele')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Watts Industries Italia')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Wuerth')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('ZF')", {}),
     ("INSERT OR IGNORE INTO event_company (event_id, company_id) SELECT 1, c.id FROM company c", {}),
 ]
 
@@ -128,6 +150,54 @@ def get_companies(conn, event_id):
         ORDER BY c.name
     """)
     return list(conn.execute(q, {"e": event_id}).mappings())
+
+def get_roundtables(conn, event_id):
+    q = text("""
+        SELECT 
+            r.id,
+            r.name,
+            r.room,
+            r.info,
+            COUNT(rb.id) AS booked
+        FROM roundtable r
+        LEFT JOIN roundtable_booking rb 
+            ON rb.roundtable_id = r.id AND rb.event_id = r.event_id
+        WHERE r.event_id = :e
+        GROUP BY r.id, r.name, r.room, r.info
+        ORDER BY r.id
+    """)
+    return list(conn.execute(q, {"e": event_id}).mappings())
+
+def book_roundtable(conn, event_id, roundtable_id, student):
+    q = text("""
+        INSERT INTO roundtable_booking (event_id, roundtable_id, student)
+        VALUES (:e, :r, :s)
+    """)
+    conn.execute(q, {"e": event_id, "r": roundtable_id, "s": student})
+
+def get_student_roundtable_bookings(conn, event_id: int, student: str):
+    """
+    Returns a list of roundtable bookings for a given student and event.
+    Each booking is a dict with at least roundtable_id.
+    """
+    q = text("""
+        SELECT roundtable_id
+        FROM roundtable_booking
+        WHERE event_id = :e AND student = :s
+    """)
+    return list(conn.execute(q, {"e": event_id, "s": student}).mappings())
+
+def book_roundtable(conn, event_id: int, roundtable_id: int, student: str):
+    """
+    Books a student into a roundtable for a given event.
+    Avoids double bookings for the same student+roundtable.
+    """
+    q = text("""
+        INSERT INTO roundtable_booking (event_id, roundtable_id, student, created_at)
+        VALUES (:e, :rt, :s, :t)
+        ON CONFLICT(event_id, roundtable_id, student) DO NOTHING
+    """)
+    conn.execute(q, {"e": event_id, "rt": roundtable_id, "s": student, "t": datetime.utcnow().isoformat()})
 
 # Check-in
 def is_checked_in(conn, event_id, student):
@@ -436,4 +506,4 @@ def upsert_running_late_notification(conn, event_id, company_id, prev_slot, next
             {"e": event_id, "c": company_id, "s": next_student,
              "slot": prev_slot, "m": msg, "t": now_iso}
         )
-
+    

@@ -23,11 +23,11 @@ def render_admin(event):
     """Render the Admin area (unchanged behavior)."""
     st.title("Area Admin")
 
-    tab_rosters, tab_add_company, tab_qr = st.tabs(["Rosters", "Aggiungi azienda", "Scanner QR (presenze)"])
+    tab_rosters, tab_add_company, tab_qr = st.tabs(["Companies", "Add company", "Scanner QR (attendances)"])
 
     # Rosters
     with tab_rosters:
-        st.subheader("Rosters (tutte le aziende)")
+        st.subheader("Company List")
         with engine.begin() as conn:
             companies = get_companies(conn, event["id"])
             for c in companies:
@@ -51,9 +51,9 @@ def render_admin(event):
 
     # Add company
     with tab_add_company:
-        st.subheader("Aggiungi nuova azienda")
-        new_name = st.text_input("Nome azienda", key="new_company_name")
-        if st.button("Aggiungi"):
+        st.subheader("Add a new company")
+        new_name = st.text_input("Company name", key="new_company_name")
+        if st.button("Add"):
             name = (new_name or "").strip()
             if not name:
                 st.error("Nome azienda vuoto")
@@ -75,7 +75,7 @@ def render_admin(event):
 
     # QR scanner
     with tab_qr:
-        st.subheader("Scanner QR (presenze studenti)")
+        st.subheader("Scanner QR (student attendance)")
         if not HAS_CV2:
             st.error("OpenCV non è installato. Aggiungi 'opencv-python' al requirements.txt e riprova.")
             return
