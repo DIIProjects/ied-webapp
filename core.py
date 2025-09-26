@@ -60,6 +60,22 @@ CREATE TABLE IF NOT EXISTS booking (
   cv_uploaded_at TEXT,
   UNIQUE(event_id, company_id, slot)
 );
+CREATE TABLE IF NOT EXISTS roundtable (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    room TEXT,
+    info TEXT,
+    UNIQUE(event_id, name)
+);
+CREATE TABLE IF NOT EXISTS roundtable_booking (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    roundtable_id INTEGER NOT NULL,
+    student TEXT NOT NULL,
+    created_at TEXT,
+    UNIQUE(event_id, roundtable_id, student)
+);
 CREATE TABLE IF NOT EXISTS interview_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   booking_id INTEGER NOT NULL UNIQUE,
@@ -161,7 +177,7 @@ def get_roundtables(conn, event_id):
             COUNT(rb.id) AS booked
         FROM roundtable r
         LEFT JOIN roundtable_booking rb 
-            ON rb.roundtable_id = r.id AND rb.event_id = r.event_id
+            ON rb.roundtable_id = r.id
         WHERE r.event_id = :e
         GROUP BY r.id, r.name, r.room, r.info
         ORDER BY r.id
