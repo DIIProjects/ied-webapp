@@ -2,17 +2,13 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 from core import engine, init_db, migrate_db, ensure_dirs, get_active_event
-from auth import AUTH_MODE, admin_ok, seed_demo_users, reset_session
+from auth import AUTH_MODE, admin_ok, seed_demo_users, reset_session, bootstrap_student_login
 from page_student import render_student
 from page_company import render_company
 from page_admin import render_admin
 
 # ------------------- APP SETUP -------------------
 st.set_page_config(page_title="Industrial Engineering Day", page_icon="🎓", layout="centered")
-
-# refresh only after login
-if "role" in st.session_state:
-    st_autorefresh(interval=1000, key="timer_refresh")
 
 # DB & seed
 init_db()
@@ -23,12 +19,21 @@ seed_demo_users()
 with engine.begin() as conn:
     event = get_active_event(conn)
 
+# Se l'IdP ha già autenticato e Apache ha passato attributi, facciamo il bootstrap studente.
+# La funzione restituisce True SOLO quando imposta effettivamente la sessione per la prima volta.
+if bootstrap_student_login():
+    st.experimental_rerun()
+
+# refresh solo dopo login (timer colloqui)
+if "role" in st.session_state:
+    st_autorefresh(interval=1000, key="timer_refresh")
+
 # ------------------- LOGIN VIEW -------------------
 if "role" not in st.session_state:
     st.header("Industrial Engineering Day - Login page")
     tab_company, tab_student = st.tabs(["Company", "Student"])
 
-    # late import to avoid circulars (ok)
+    # late import per evitare circular imports
     from auth import find_company_user
 
     # --- Company/Admin ---
@@ -62,12 +67,14 @@ if "role" not in st.session_state:
                 st.error("Usa un'email @unitn.it valida")
             else:
                 if AUTH_MODE == "dev":
+                    # Solo in dev: login simulato
                     st.session_state["role"] = "student"
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
                     st.success("Login studente simulato (dev mode)")
                     st.rerun()
                 else:
+                    # In prod, l'accesso reale avviene via Apache+Shibboleth/SAML
                     st.markdown("[Accedi tramite UniTN SSO](https://idp.unitn.it/idp/profile/SAML2/Redirect/SSO)")
 
     st.stop()
