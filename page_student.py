@@ -70,9 +70,10 @@ def render_student(event):
 
         slot_choice = st.selectbox("Available slots", available)
 
-        # Optional CV
-        st.caption("Upload your CV (PDF, optional)")
-        cv_file = st.file_uploader("Curriculum (PDF)", type=["pdf"], key="cv_upload")
+        # Optional CV link
+        st.caption("Add a link (Optional)")
+        cv_link = st.text_input("Link for furtuher information about your experience (e.g., GitHub, Linkedin, GDrive with your CV) ", key="cv_link_input")
+
 
         if st.button("Book slot"):
             try:
