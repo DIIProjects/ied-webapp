@@ -110,6 +110,7 @@ SEED = [
     ("INSERT OR IGNORE INTO company (name) VALUES ('Global Wafers (Memc)')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('Gruppo Pittini')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('IIT hydrogen')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Iveco')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('La Sportiva')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('Leitner')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('Mahle')", {}),

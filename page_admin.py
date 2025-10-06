@@ -15,6 +15,15 @@ from core import (
     get_roundtables,
 )
 
+ROUND_TABLE_CAPACITY = {
+    1: 140,
+    2: 140,
+    3: 73,
+    4: 130,
+    5: 113,
+    6: 68
+}
+
 # cv2 availability flag lives in core; re-evaluate here
 try:
     from core import HAS_CV2
@@ -25,8 +34,8 @@ def render_admin(event):
     """Render the Admin area (unchanged behavior)."""
     st.title("Area Admin")
     #st.write("DEBUG: render_admin called with event =", event)
-    tab_rosters, tab_add_company, tab_qr, tab_roundtables = st.tabs([
-        "Companies", "Add company", "QR Scanner", "Round Tables Bookings"
+    tab_rosters, tab_add_company, tab_roundtables = st.tabs([
+        "Companies", "Add company", "Round Tables Bookings"
     ])
 
     # Rosters
@@ -76,7 +85,7 @@ def render_admin(event):
                     st.rerun()
                 except Exception as ex:
                     st.error(f"Errore: {ex}")
-
+    """
     # QR scanner
     with tab_qr:
         st.subheader("Scanner QR (student attendance)")
@@ -108,7 +117,7 @@ def render_admin(event):
                         if st.button(f"Registra presenza (QR #{idx})"):
                             append_attendance_csv(event["id"], full_name, first_name, last_name, payload)
                             st.success("Presenza registrata")
-
+    """
     # -----------------------------
     # Round Tables Bookings
     # -----------------------------
@@ -128,7 +137,21 @@ def render_admin(event):
                 st.info("Nessuna round table disponibile.")
             else:
                 for rt in rts:
-                    st.markdown(f"### {rt['name']} - {rt['room']} ({rt['booked']} prenotazioni)")
+                    capacity = ROUND_TABLE_CAPACITY.get(rt["id"], None)
+
+                    if capacity:
+                        percentage = rt['booked'] / capacity if capacity else 0
+                        bar_length = 20  # lunghezza della barra
+                        filled_blocks = int(percentage * bar_length)
+                        bar = "█" * filled_blocks + "░" * (bar_length - filled_blocks)
+
+                        st.markdown(
+                            f"### {rt['name']} – {rt['room']} ({rt['booked']} / {capacity} — {round(percentage*100, 1)}%)\n"
+                            f"`{bar} {round(percentage*100)}%`"
+                        )
+                    else:
+                        st.markdown(f"### {rt['name']} - {rt['room']} ({rt['booked']} prenotazioni)")
+
 
                     # Mostra le prenotazioni attuali
                     q = text("""

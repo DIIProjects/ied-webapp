@@ -71,65 +71,98 @@ def render_student(event):
         slot_choice = st.selectbox("Available slots", available)
 
         # Optional CV link
-        st.caption("Add a link (Optional)")
-        cv_link = st.text_input("Link for furtuher information about your experience (e.g., GitHub, Linkedin, GDrive with your CV) ", key="cv_link_input")
-
+        st.caption("Add a link (optional)")
+        cv_link = st.text_input(
+            "Link for further information about your experience (e.g. GitHub, LinkedIn, Google Drive)",
+            key="cv_link_input"
+        )
 
         if st.button("Book slot"):
             try:
-                cv_path = save_cv_file(cv_file, event["id"], comp_id, student, slot_choice)
+                cv_path = cv_link or None  # save link or None
                 with engine.begin() as conn:
                     book_slot(conn, event["id"], comp_id, student, slot_choice, cv_path)
-                if cv_path:
-                    st.success(f"Booked {slot_choice} con {pick}. CV uploaded.")
+
+                if cv_link:
+                    st.success(f"Booked {slot_choice} with {pick}. CV/link saved.")
                 else:
-                    st.success(f"Booked {slot_choice} con {pick}.")
-                st.rerun()
+                    st.success(f"Booked {slot_choice} with {pick}.")
+
+                # try to rerun; if st.rerun() not available, fallback to session_state increment
+                try:
+                    st.rerun()
+                except Exception:
+                    st.session_state["book_update"] = st.session_state.get("book_update", 0) + 1
+
             except Exception as ex:
                 st.error(f"Errore: {ex}")
-
+   
     with tab_roundtables:
         st.subheader("Book a Round Table")
 
         student = st.session_state.get("student_name") or st.session_state["email"]
 
-        # Load all roundtables and student bookings once
+        # Capienza dei tavoli (ID → capienza)
+        CAPACITY = {
+            1: 140,
+            2: 140,
+            3: 73,
+            4: 130,
+            5: 113,
+            6: 68,
+        }
+
         with engine.begin() as conn:
             roundtables = get_roundtables(conn, event["id"])
             my_rt_bookings = {b['roundtable_id'] for b in get_student_roundtable_bookings(conn, event["id"], student)}
 
+            # Conta prenotazioni per ogni tavolo
+            current_counts = {}
+            for rt in roundtables:
+                q = text("SELECT COUNT(*) FROM roundtable_booking WHERE roundtable_id = :rt_id")
+                current_counts[rt['id']] = conn.execute(q, {"rt_id": rt["id"]}).scalar()
+
         if not roundtables:
             st.info("No round tables available for this event.")
         else:
-            # Filter out roundtables already booked by this student
-            available_roundtables = [rt for rt in roundtables if rt['id'] not in my_rt_bookings]
+            # Controlla se tutte hanno raggiunto almeno il 50%
+            phase2 = all(current_counts[rt['id']] >= CAPACITY[rt['id']] // 2 for rt in roundtables)
+
+            # Determina roundtable prenotabili
+            available_roundtables = []
+            for rt in roundtables:
+                limit = CAPACITY[rt['id']] if phase2 else CAPACITY[rt['id']] // 2
+                if current_counts[rt['id']] < limit and rt['id'] not in my_rt_bookings:
+                    available_roundtables.append(rt)
 
             if not available_roundtables:
-                st.info("You have already booked all available round tables.")
+                st.info("No round tables available for booking at this time.")
             else:
-                # Selectbox with name + room
-                options = [f"{rt['name']} – 📍 {rt['room']}" for rt in available_roundtables]
+                # Mostra percentuale riempimento
+                options = [
+                    f"{rt['name']} – 📍 {rt['room']}"
+                    for rt in available_roundtables
+                ]
                 rt_choice_str = st.selectbox("Select a round table", options)
 
                 if rt_choice_str:
-                    # Map back to the roundtable dict
-                    rt_choice = next(rt for rt in available_roundtables if f"{rt['name']} – 📍 {rt['room']}" == rt_choice_str)
+                    rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
 
                     if st.button("Book this round table"):
                         try:
                             with engine.begin() as conn:
                                 book_roundtable(conn, event["id"], rt_choice['id'], student)
                             st.success(f"You booked **{rt_choice['name']}** successfully!")
-                            #st.experimental_rerun()
                         except Exception as ex:
                             st.error(f"Error while booking: {ex}")
 
-                # Optional: show current bookings
-                st.subheader("Your Round Table Bookings")
-                if my_rt_bookings:
-                    for rt in roundtables:
-                        if rt['id'] in my_rt_bookings:
-                            st.write(f"- {rt['name']} – 📍 {rt['room']}")
-                else:
-                    st.info("You have no round table bookings yet.")
+            # Show student's current bookings
+            st.subheader("Your Round Table Bookings")
+            if my_rt_bookings:
+                for rt in roundtables:
+                    if rt['id'] in my_rt_bookings:
+                        st.write(f"- {rt['name']} – 📍 {rt['room']}")
+            else:
+                st.info("You have no round table bookings yet.")
+
                                         
