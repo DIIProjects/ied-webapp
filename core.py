@@ -292,11 +292,13 @@ def book_slot(conn, event_id, company_id, student, slot, cv_path: str | None = N
     )
 
 def get_student_bookings(conn, event_id, student):
-    q = text("""SELECT b.slot, c.name as company 
-                FROM booking b 
-                JOIN company c ON c.id=b.company_id 
-                WHERE b.event_id=:e AND b.student=:s 
-                ORDER BY b.slot""")
+    q = text("""
+        SELECT b.slot, b.company_id, c.name AS company
+        FROM booking b
+        JOIN company c ON c.id = b.company_id
+        WHERE b.event_id = :e AND b.student = :s
+        ORDER BY b.slot
+    """)
     return list(conn.execute(q, {"e": event_id, "s": student}).mappings())
 
 # Notifications

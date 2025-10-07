@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import text
+from datetime import datetime, timedelta
 
 from core import (
     engine,
@@ -26,8 +27,13 @@ def render_student(event):
     tab_companies, tab_roundtables = st.tabs(["Company Interview", "Round Tables"])
 
     with tab_companies:
-        # Notifications + my bookings
+        st.subheader("My Bookings & Notifications")
+
+        student = st.session_state.get("student_name") or st.session_state["email"]
+
+        # --- Load student bookings ---
         with engine.begin() as conn:
+            myb = get_student_bookings(conn, event["id"], student)
             # Notifications
             notifs = get_unread_notifications(conn, event["id"], student)
             for n in notifs:
@@ -39,19 +45,65 @@ def render_student(event):
                         mark_notification_read(conn, n["id"])
                         st.rerun()
 
-            # My bookings
-            st.subheader("My Bookings")
+            # Student bookings
             myb = get_student_bookings(conn, event["id"], student)
 
+        st.subheader("My Bookings")
+
         if myb:
+            now = datetime.now()
+            event_date = event.get("date") or datetime.today().strftime("%Y-%m-%d")
+
             for b in myb:
-                st.write(f"- {b['slot']} con {b['company']}")
+                # Parsing dello slot
+                try:
+                    slot_time = datetime.fromisoformat(b["slot"])
+                except ValueError:
+                    # slot solo orario, combino con la data dell'evento
+                    hour, minute = map(int, b["slot"].split(":"))
+                    slot_time = datetime.strptime(event_date, "%Y-%m-%d").replace(hour=hour, minute=minute)
+
+                # Calcolo quanto manca al colloquio in ore
+                time_to_interview = (slot_time - now).total_seconds() / 3600
+
+                col1, col2 = st.columns([4, 2])
+                with col1:
+                    st.write(f"🕒 {b['slot']} — **{b['company']}**")
+
+                with col2:
+                    if time_to_interview > 1:
+                        if st.button("❌ Delete", key=f"cancel_{b['company']}_{b['slot']}"):
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(
+                                        text("""
+                                            DELETE FROM booking
+                                            WHERE event_id = :e AND company_id = :c AND student = :s AND slot = :slot
+                                        """),
+                                        {
+                                            "e": event["id"],
+                                            "c": b["company_id"],
+                                            "s": student,
+                                            "slot": b["slot"]
+                                        }
+                                    )
+                                st.success(f"Booking with {b['company']} at {b['slot']} successfully deleted.")
+                                # Forza refresh
+                                try:
+                                    st.rerun()
+                                except Exception:
+                                    st.session_state["book_update"] = st.session_state.get("book_update", 0) + 1
+                            except Exception as ex:
+                                st.error(f"Cancellation error: {ex}")
+                    else:
+                        # Blocco cancellazione se manca meno di 1 ora
+                        st.button("❌ Delete (not available)", key=f"cancel_disabled_{b['company']}_{b['slot']}", disabled=True)
+                        st.caption("⏰ It is no longer possible to cancel the reservation (less than 1 hour at the interview).")
         else:
             st.info("No Bookings")
 
-        # New booking
+        # --- New Booking ---
         st.subheader("Book an interview")
-
         with engine.begin() as conn:
             comps = get_companies(conn, event["id"])
 
@@ -60,40 +112,51 @@ def render_student(event):
 
         with engine.begin() as conn:
             booked = {b["slot"] for b in get_bookings(conn, event["id"], comp_id)}
+            myb = get_student_bookings(conn, event["id"], student)
 
+        # --- Slot filtering ---
+        def parse_slot(slot_str):
+            try:
+                return datetime.strptime(slot_str, "%H:%M")
+            except ValueError:
+                return datetime.fromisoformat(slot_str)
+
+        my_booked_times = [parse_slot(b["slot"]) for b in myb]
         slots = generate_slots()
-        available = [s for s in slots if s not in booked]
+        available = []
+        excluded_close = []
 
+        for s in slots:
+            if s in booked:
+                continue
+            s_time = parse_slot(s)
+            if any(abs((s_time - t).total_seconds()) < 30*60 for t in my_booked_times):
+                excluded_close.append(s)
+                continue
+            available.append(s)
+
+        if excluded_close:
+            st.warning(f"⚠️ {len(excluded_close)} hidden slots because they are too close to reservations already made (±30 min).")
         if not available:
-            st.warning("Any available slot for this company")
-            return
+            st.warning("No slots available for this company (considering the 30 minute limit).")
+            st.stop()
 
         slot_choice = st.selectbox("Available slots", available)
 
-        # Optional CV link
+        # Optional link
         st.caption("Add a link (optional)")
         cv_link = st.text_input(
-            "Link for further information about your experience (e.g. GitHub, LinkedIn, Google Drive)",
+            "Link for further information about your experience (GitHub, LinkedIn, Google Drive)",
             key="cv_link_input"
         )
 
         if st.button("Book slot"):
             try:
-                cv_path = cv_link or None  # save link or None
+                cv_path = cv_link or None
                 with engine.begin() as conn:
                     book_slot(conn, event["id"], comp_id, student, slot_choice, cv_path)
-
-                if cv_link:
-                    st.success(f"Booked {slot_choice} with {pick}. CV/link saved.")
-                else:
-                    st.success(f"Booked {slot_choice} with {pick}.")
-
-                # try to rerun; if st.rerun() not available, fallback to session_state increment
-                try:
-                    st.rerun()
-                except Exception:
-                    st.session_state["book_update"] = st.session_state.get("book_update", 0) + 1
-
+                st.success(f"Booked {slot_choice} with {pick}. {'CV/link saved.' if cv_link else ''}")
+                st.session_state["book_update"] = st.session_state.get("book_update", 0) + 1
             except Exception as ex:
                 st.error(f"Errore: {ex}")
    
