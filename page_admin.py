@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import text
 from datetime import datetime
+import traceback
 
 from core import (
     engine,
@@ -13,6 +14,7 @@ from core import (
     decode_qr_from_image_bytes,
     parse_name_from_qr_text,
     get_roundtables,
+    generate_slots,
 )
 
 ROUND_TABLE_CAPACITY = {
@@ -40,27 +42,147 @@ def render_admin(event):
 
     # Rosters
     with tab_rosters:
-        st.subheader("Company List")
+        st.subheader("📋 Company Bookings Management")
+
+        # --- FILTRI DI RICERCA ---
+        with st.expander("🔎 Filtri di ricerca", expanded=True):
+            with engine.begin() as conn:
+                all_companies = get_companies(conn, event["id"])
+
+            col1, col2 = st.columns([2, 2])
+            with col1:
+                selected_company = st.selectbox(
+                    "Filtra per azienda",
+                    ["Tutte"] + [c["name"] for c in all_companies],
+                    key="filter_company"
+                )
+
+            with col2:
+                search_student = st.text_input(
+                    "Cerca per nome studente o email",
+                    key="filter_student"
+                ).strip().lower()
+
+        # --- CICLO PRINCIPALE ---
         with engine.begin() as conn:
-            companies = get_companies(conn, event["id"])
-            for c in companies:
-                st.markdown(f"### {c['name']}")
+            companies = all_companies if selected_company == "Tutte" else [
+                c for c in all_companies if c["name"] == selected_company
+            ]
+
+        for c in companies:
+            st.markdown(f"### 🏢 {c['name']}")
+
+            with engine.begin() as conn:
                 rows = get_bookings_with_logs(conn, event["id"], c["id"])
-                df = pd.DataFrame(rows)
-                if df.empty:
-                    st.info("Nessuna prenotazione")
-                else:
-                    df_show = df.sort_values("slot")[
-                        ["slot", "student", "cv", "status", "start_time", "end_time"]
-                    ].rename(columns={
-                        "slot": "Orario",
-                        "student": "Studente",
-                        "cv": "CV",
-                        "status": "Stato",
-                        "start_time": "Inizio",
-                        "end_time": "Fine",
-                    })
-                    st.dataframe(df_show, use_container_width=True)
+
+            # --- Applica filtro studente ---
+            if search_student:
+                rows = [
+                    r for r in rows
+                    if search_student in (r["student"] or "").lower()
+                ]
+
+            df = pd.DataFrame(rows)
+
+            # --- Mostra le prenotazioni ---
+            if df.empty:
+                st.info("Nessuna prenotazione trovata per i filtri selezionati.")
+            else:
+                df_show = df.sort_values("slot")[
+                    ["slot", "student", "cv", "status", "start_time", "end_time"]
+                ].rename(columns={
+                    "slot": "Orario",
+                    "student": "Studente",
+                    "cv": "CV / Link",
+                    "status": "Stato",
+                    "start_time": "Inizio",
+                    "end_time": "Fine",
+                })
+                st.dataframe(df_show, use_container_width=True, hide_index=True)
+
+                # --- Pulsanti per cancellare prenotazioni ---
+                for _, row in df.iterrows():
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        st.write(f"🕒 {row['slot']} — {row['student']}")
+                    with col2:
+                        if st.button("❌ Rimuovi", key=f"del_{c['id']}_{row['student']}_{row['slot']}"):
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(
+                                        text("""
+                                            DELETE FROM booking
+                                            WHERE event_id = :e
+                                            AND company_id = :c
+                                            AND student = :s
+                                            AND slot = :slot
+                                        """),
+                                        {
+                                            "e": event["id"],
+                                            "c": c["id"],
+                                            "s": row["student"],
+                                            "slot": row["slot"],
+                                        }
+                                    )
+                                st.success(f"Prenotazione di {row['student']} alle {row['slot']} rimossa.")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"Errore nella cancellazione: {ex}")
+
+            # --- Sezione per aggiungere prenotazione manuale ---
+            with st.expander(f"➕ Aggiungi prenotazione per {c['name']}"):
+                with st.form(f"add_form_{c['id']}"):
+                    colA, colB, colC = st.columns(3)
+                    with colA:
+                        name = st.text_input("Nome", key=f"name_{c['id']}")
+                    with colB:
+                        surname = st.text_input("Cognome", key=f"surname_{c['id']}")
+                    with colC:
+                        email = st.text_input("Email", key=f"email_{c['id']}")
+
+                    available_slots = generate_slots()
+                    booked_slots = {r["slot"] for r in rows}
+                    free_slots = [s for s in available_slots if s not in booked_slots]
+
+                    slot_choice = st.selectbox(
+                        "Seleziona uno slot disponibile",
+                        free_slots,
+                        key=f"slot_{c['id']}"
+                    )
+
+                    cv_link = st.text_input("Link CV (facoltativo)", key=f"cvlink_{c['id']}")
+
+                    submitted = st.form_submit_button("Aggiungi prenotazione")
+
+                    if submitted:
+                        if not (name and surname and email):
+                            st.warning("⚠️ Compila nome, cognome ed email.")
+                        else:
+                            student_identifier = f"{name} {surname} <{email}>"
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(
+                                        text("""
+                                            INSERT INTO booking (event_id, company_id, student, slot, cv, status)
+                                            VALUES (:e, :c, :s, :slot, :cv, 'manual')
+                                            ON CONFLICT(event_id, company_id, student, slot) DO NOTHING
+                                        """),
+                                        {
+                                            "e": event["id"],
+                                            "c": c["id"],
+                                            "s": student_identifier,
+                                            "slot": slot_choice,
+                                            "cv": cv_link or None,
+                                        }
+                                    )
+                                st.success(f"✅ Prenotazione aggiunta per {student_identifier} alle {slot_choice}")
+                                st.rerun()
+                            except Exception as ex:
+                                #st.error(f"Errore durante l'inserimento: {ex}")
+                                st.error("❌ Errore durante l'inserimento. Controlla i log sotto.")
+                                st.code(traceback.format_exc())
+                                print(traceback.format_exc())
+
 
     # Add company
     with tab_add_company:
@@ -85,6 +207,7 @@ def render_admin(event):
                     st.rerun()
                 except Exception as ex:
                     st.error(f"Errore: {ex}")
+                    
     """
     # QR scanner
     with tab_qr:
