@@ -36,9 +36,12 @@ def render_admin(event):
     """Render the Admin area (unchanged behavior)."""
     st.title("Area Admin")
     #st.write("DEBUG: render_admin called with event =", event)
-    tab_rosters, tab_add_company, tab_roundtables = st.tabs([
+    tab_plenaria, tab_rosters, tab_add_company, tab_roundtables = st.tabs(["Plenary",
         "Companies", "Add company", "Round Tables Bookings"
     ])
+
+    with tab_plenaria:
+        st.subheader("Plenary Attendance")
 
     # Rosters
     with tab_rosters:
