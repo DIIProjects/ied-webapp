@@ -188,44 +188,47 @@ def render_student(event):
         if not roundtables:
             st.info("No round tables available for this event.")
         else:
-            # Controlla se tutte hanno raggiunto almeno il 50%
-            phase2 = all(current_counts[rt['id']] >= CAPACITY[rt['id']] // 2 for rt in roundtables)
-
-            # Determina roundtable prenotabili
-            available_roundtables = []
-            for rt in roundtables:
-                limit = CAPACITY[rt['id']] if phase2 else CAPACITY[rt['id']] // 2
-                if current_counts[rt['id']] < limit and rt['id'] not in my_rt_bookings:
-                    available_roundtables.append(rt)
-
-            if not available_roundtables:
-                st.info("No round tables available for booking at this time.")
-            else:
-                # Mostra percentuale riempimento
-                options = [
-                    f"{rt['name']} – 📍 {rt['room']}"
-                    for rt in available_roundtables
-                ]
-                rt_choice_str = st.selectbox("Select a round table", options)
-
-                if rt_choice_str:
-                    rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
-
-                    if st.button("Book this round table"):
-                        try:
-                            with engine.begin() as conn:
-                                book_roundtable(conn, event["id"], rt_choice['id'], student)
-                            st.success(f"You booked **{rt_choice['name']}** successfully!")
-                        except Exception as ex:
-                            st.error(f"Error while booking: {ex}")
-
-            # Show student's current bookings
-            st.subheader("Your Round Table Bookings")
+            # 🔹 Controllo: studente ha già una prenotazione
             if my_rt_bookings:
-                for rt in roundtables:
-                    if rt['id'] in my_rt_bookings:
-                        st.write(f"- {rt['name']} – 📍 {rt['room']}")
+                st.warning("⚠️ You have already booked a round table. You can only join one.")
             else:
-                st.info("You have no round table bookings yet.")
+                # Controlla se tutte hanno raggiunto almeno il 50%
+                phase2 = all(current_counts[rt['id']] >= CAPACITY[rt['id']] // 2 for rt in roundtables)
 
-                                        
+                # Determina roundtable prenotabili
+                available_roundtables = []
+                for rt in roundtables:
+                    limit = CAPACITY[rt['id']] if phase2 else CAPACITY[rt['id']] // 2
+                    if current_counts[rt['id']] < limit:
+                        available_roundtables.append(rt)
+
+                if not available_roundtables:
+                    st.info("No round tables available for booking at this time.")
+                else:
+                    # Mostra percentuale riempimento
+                    options = [
+                        f"{rt['name']} – 📍 {rt['room']} ({current_counts[rt['id']]}/{CAPACITY[rt['id']]})"
+                        for rt in available_roundtables
+                    ]
+                    rt_choice_str = st.selectbox("Select a round table", options)
+
+                    if rt_choice_str:
+                        rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
+
+                        if st.button("Book this round table"):
+                            try:
+                                with engine.begin() as conn:
+                                    book_roundtable(conn, event["id"], rt_choice['id'], student)
+                                st.success(f"You booked **{rt_choice['name']}** successfully!")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"Error while booking: {ex}")
+
+        # --- Mostra prenotazioni correnti ---
+        st.subheader("Your Round Table Bookings")
+        if my_rt_bookings:
+            for rt in roundtables:
+                if rt['id'] in my_rt_bookings:
+                    st.write(f"- {rt['name']} – 📍 {rt['room']}")
+        else:
+            st.info("You have no round table bookings yet.")
