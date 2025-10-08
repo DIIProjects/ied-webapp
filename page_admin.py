@@ -247,10 +247,10 @@ def render_admin(event):
     with tab_roundtables:
         st.subheader("Round Tables")
 
-        # Input per il nome dello studente
+        # Input per aggiungere studenti
         student_name_input = st.text_input("Nome studente da prenotare", key="rt_student_name")
 
-        # Chiave di sessione per forzare il refresh
+        # Forza refresh
         if "rt_update" not in st.session_state:
             st.session_state.rt_update = 0
 
@@ -264,10 +264,9 @@ def render_admin(event):
 
                     if capacity:
                         percentage = rt['booked'] / capacity if capacity else 0
-                        bar_length = 20  # lunghezza della barra
+                        bar_length = 20
                         filled_blocks = int(percentage * bar_length)
                         bar = "█" * filled_blocks + "░" * (bar_length - filled_blocks)
-
                         st.markdown(
                             f"### {rt['name']} – {rt['room']} ({rt['booked']} / {capacity} — {round(percentage*100, 1)}%)\n"
                             f"`{bar} {round(percentage*100)}%`"
@@ -275,10 +274,9 @@ def render_admin(event):
                     else:
                         st.markdown(f"### {rt['name']} - {rt['room']} ({rt['booked']} prenotazioni)")
 
-
-                    # Mostra le prenotazioni attuali
+                    # Mostra le prenotazioni con la colonna 'attended'
                     q = text("""
-                        SELECT student, created_at
+                        SELECT id, student, created_at, COALESCE(attended, 0) AS attended
                         FROM roundtable_booking
                         WHERE roundtable_id = :rt_id
                         ORDER BY created_at
@@ -288,20 +286,52 @@ def render_admin(event):
                     if not bookings:
                         st.write("Nessuna prenotazione per questo tavolo.")
                     else:
-                        df = pd.DataFrame(bookings).rename(columns={
-                            "student": "Studente",
-                            "created_at": "Prenotato il"
-                        })
-                        st.dataframe(df, use_container_width=True)
+                        st.write("**Partecipanti**")
+                        for b in bookings:
+                            cols = st.columns([4, 2, 2])
+                            with cols[0]:
+                                st.write(f"👤 {b['student']}")
+                            with cols[1]:
+                                present = st.checkbox(
+                                    "Presente",
+                                    value=bool(b["attended"]),
+                                    key=f"attend_{rt['id']}_{b['id']}"
+                                )
+                                # Aggiorna DB al cambio della checkbox
+                                if present != bool(b["attended"]):
+                                    try:
+                                        conn.execute(
+                                            text("""
+                                                UPDATE roundtable_booking
+                                                SET attended = :a
+                                                WHERE id = :id
+                                            """),
+                                            {"a": int(present), "id": b["id"]}
+                                        )
+                                        st.toast(f"Presenza di {b['student']} aggiornata ✅", icon="✅")
+                                    except Exception as ex:
+                                        st.error(f"Errore aggiornando presenza: {ex}")
+                            with cols[2]:
+                                if st.button("🗑️ Rimuovi", key=f"rm_{rt['id']}_{b['id']}"):
+                                    try:
+                                        conn.execute(
+                                            text("DELETE FROM roundtable_booking WHERE id = :id"),
+                                            {"id": b["id"]}
+                                        )
+                                        st.success(f"{b['student']} rimosso da {rt['name']}")
+                                        st.session_state.rt_update += 1
+                                        st.rerun()
+                                    except Exception as ex:
+                                        st.error(f"Errore: {ex}")
 
-                    # Pulsante per aggiungere prenotazione
+                    # Pulsante per aggiungere prenotazioni
                     if student_name_input:
                         if st.button(f"Aggiungi {student_name_input} a {rt['name']}", key=f"add_{rt['id']}"):
                             try:
                                 conn.execute(
                                     text("""
-                                        INSERT INTO roundtable_booking (event_id, roundtable_id, student, created_at)
-                                        VALUES (:e, :rt, :s, :t)
+                                        INSERT INTO roundtable_booking (event_id, roundtable_id, student, created_at, attended)
+                                        VALUES (:e, :rt, :s, :t, 0)
                                         ON CONFLICT(event_id, roundtable_id, student) DO NOTHING
                                     """),
                                     {
@@ -312,20 +342,7 @@ def render_admin(event):
                                     }
                                 )
                                 st.success(f"{student_name_input} aggiunto a {rt['name']}")
-                                st.session_state.rt_update += 1  # forza refresh
+                                st.session_state.rt_update += 1
+                                st.rerun()
                             except Exception as ex:
                                 st.error(f"Errore: {ex}")
-
-                    # Pulsante per rimuovere prenotazioni
-                    if bookings:
-                        for b in bookings:
-                            if st.button(f"Rimuovi {b['student']}", key=f"rm_{rt['id']}_{b['student']}"):
-                                try:
-                                    conn.execute(
-                                        text("DELETE FROM roundtable_booking WHERE roundtable_id=:rt AND student=:s"),
-                                        {"rt": rt["id"], "s": b["student"]}
-                                    )
-                                    st.success(f"{b['student']} rimosso da {rt['name']}")
-                                    st.session_state.rt_update += 1  # forza refresh
-                                except Exception as ex:
-                                    st.error(f"Errore: {ex}")

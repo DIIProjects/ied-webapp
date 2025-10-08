@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS roundtable_booking (
     roundtable_id INTEGER NOT NULL,
     student TEXT NOT NULL,
     created_at TEXT,
+    attended INTEGER DEFAULT 0,
     UNIQUE(event_id, roundtable_id, student)
 );
 CREATE TABLE IF NOT EXISTS interview_log (
