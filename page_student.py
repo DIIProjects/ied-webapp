@@ -16,13 +16,74 @@ from core import (
     mark_notification_read,
     get_roundtables,
     get_student_roundtable_bookings,
-    book_roundtable
+    book_roundtable,
+    get_student_matricola,
+    save_student_matricola
 )
 
 def render_student(event):
-    """Render the Student area (unchanged behavior)."""
+    """Render the Student area."""
     student = st.session_state.get("student_name") or st.session_state["email"]
     st.title("Student Area")
+
+    # --- Carica matricola studente dal DB ---
+    with engine.begin() as conn:
+        matricola = get_student_matricola(conn, student)
+
+    # Se la matricola non è ancora in sessione, caricala
+    if "matricola" not in st.session_state:
+        st.session_state["matricola"] = matricola
+
+    st.markdown("### 👤 Student Information")
+
+    # --- Se la matricola non è ancora impostata ---
+    if not st.session_state["matricola"]:
+        st.warning("🎓 Prima di continuare, inserisci la tua matricola e accetta le informative sulla privacy.")
+
+        # Input per la matricola
+        matricola_input = st.text_input("📘 La tua matricola", key="matricola_input")
+
+        st.markdown("---")
+
+        # --- Informativa Privacy ---
+        st.markdown("""
+        #### Informativa sul trattamento dei dati personali
+
+        I Suoi dati personali verranno trattati dall’**Università di Trento** conformemente all’Informativa sul trattamento dei dati personali degli studenti, già fornita e disponibile alla pagina [Privacy e protezione dei dati personali](https://www.unitn.it).
+
+        Nello specifico — e a integrazione di quanto già previsto — nell’ambito dell’evento *Industrial Engineering Day 2025*, i seguenti dati personali (dati identificativi, contatti istituzionali, informazioni curriculari e preferenze di colloquio) verranno trattati per le finalità di cui alla **lettera w)** del paragrafo 3 della medesima informativa e comunicati alle Aziende partecipanti da Lei selezionate per i colloqui.
+        """)
+
+        agree_info = st.checkbox("☑️ Dichiaro di aver preso visione dell’Informativa sul trattamento dei dati personali e delle integrazioni sopra riportate.")
+        agree_share = st.checkbox("☑️ Richiedo all’Università di Trento, ai sensi dell’art. 96 del d.lgs. 30 giugno 2003, n. 196, che i miei dati personali sopra indicati vengano comunicati alle Aziende da me selezionate.")
+
+        st.markdown("---")
+
+        if st.button("💾 Salva e continua"):
+            if not matricola_input.strip():
+                st.error("⚠️ Inserisci una matricola valida.")
+            elif not agree_info or not agree_share:
+                st.error("⚠️ Devi accettare entrambe le dichiarazioni per continuare.")
+            else:
+                with engine.begin() as conn:
+                    # Salva matricola (puoi aggiungere colonne per i consensi se vuoi)
+                    save_student_matricola(conn, student, student, matricola_input.strip())
+                st.session_state["matricola"] = matricola_input.strip()
+                st.success("✅ Matricola e consensi salvati con successo!")
+                st.rerun()
+
+        st.stop()
+
+    # --- Se la matricola è già presente ---
+    else:
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.info(f"👤 **Matricola:** `{st.session_state['matricola']}`")
+        with col2:
+            if st.button("Edit"):
+                st.session_state["matricola"] = None
+                st.rerun()
+
 
     tab_companies, tab_roundtables = st.tabs(["Company Interview", "Round Tables"])
 
@@ -154,7 +215,8 @@ def render_student(event):
             try:
                 cv_path = cv_link or None
                 with engine.begin() as conn:
-                    book_slot(conn, event["id"], comp_id, student, slot_choice, cv_path)
+                    matricola = st.session_state.get("matricola")
+                    book_slot(conn, event["id"], comp_id, student, slot_choice, cv_path, matricola)
                 st.success(f"Booked {slot_choice} with {pick}. {'CV/link saved.' if cv_link else ''}")
                 st.session_state["book_update"] = st.session_state.get("book_update", 0) + 1
             except Exception as ex:
@@ -218,7 +280,8 @@ def render_student(event):
                         if st.button("Book this round table"):
                             try:
                                 with engine.begin() as conn:
-                                    book_roundtable(conn, event["id"], rt_choice['id'], student)
+                                    matricola = st.session_state.get("matricola")
+                                    book_roundtable(conn, event["id"], rt_choice['id'], student, matricola)
                                 st.success(f"You booked **{rt_choice['name']}** successfully!")
                                 st.rerun()
                             except Exception as ex:

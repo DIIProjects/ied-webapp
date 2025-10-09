@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS booking (
   slot TEXT NOT NULL,
   cv_path TEXT,
   cv_uploaded_at TEXT,
+  matricola TEXT,
   UNIQUE(event_id, company_id, slot)
 );
 CREATE TABLE IF NOT EXISTS roundtable (
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS roundtable_booking (
     student TEXT NOT NULL,
     created_at TEXT,
     attended INTEGER DEFAULT 0,
+    matricola TEXT,
     UNIQUE(event_id, roundtable_id, student)
 );
 CREATE TABLE IF NOT EXISTS interview_log (
@@ -94,6 +96,17 @@ CREATE TABLE IF NOT EXISTS notification (
   message TEXT NOT NULL,
   created_at TEXT NOT NULL,
   read_at TEXT
+);
+CREATE TABLE IF NOT EXISTS student (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT UNIQUE NOT NULL,
+    name TEXT,
+    matricola TEXT
+);
+CREATE TABLE IF NOT EXISTS student_matricola (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student TEXT UNIQUE NOT NULL,
+        matricola TEXT NOT NULL
 );
 '''
 
@@ -186,12 +199,21 @@ def get_roundtables(conn, event_id):
     """)
     return list(conn.execute(q, {"e": event_id}).mappings())
 
-def book_roundtable(conn, event_id, roundtable_id, student):
-    q = text("""
-        INSERT INTO roundtable_booking (event_id, roundtable_id, student)
-        VALUES (:e, :r, :s)
-    """)
-    conn.execute(q, {"e": event_id, "r": roundtable_id, "s": student})
+def book_roundtable(conn, event_id, roundtable_id, student, matricola=None):
+    conn.execute(
+        text("""
+            INSERT INTO roundtable_booking (event_id, roundtable_id, student, created_at, matricola)
+            VALUES (:event_id, :roundtable_id, :student, datetime('now'), :matricola)
+            ON CONFLICT(event_id, roundtable_id, student) DO NOTHING
+        """),
+        {
+            "event_id": event_id,
+            "roundtable_id": roundtable_id,
+            "student": student,
+            "matricola": matricola
+        }
+    )
+
 
 def get_student_roundtable_bookings(conn, event_id: int, student: str):
     """
@@ -204,18 +226,6 @@ def get_student_roundtable_bookings(conn, event_id: int, student: str):
         WHERE event_id = :e AND student = :s
     """)
     return list(conn.execute(q, {"e": event_id, "s": student}).mappings())
-
-def book_roundtable(conn, event_id: int, roundtable_id: int, student: str):
-    """
-    Books a student into a roundtable for a given event.
-    Avoids double bookings for the same student+roundtable.
-    """
-    q = text("""
-        INSERT INTO roundtable_booking (event_id, roundtable_id, student, created_at)
-        VALUES (:e, :rt, :s, :t)
-        ON CONFLICT(event_id, roundtable_id, student) DO NOTHING
-    """)
-    conn.execute(q, {"e": event_id, "rt": roundtable_id, "s": student, "t": datetime.utcnow().isoformat()})
 
 # Check-in
 def is_checked_in(conn, event_id, student):
@@ -278,19 +288,23 @@ def save_cv_file(file_uploader, event_id: int, company_id: int, student: str, sl
         f.write(file_uploader.getbuffer())
     return fname
 
-def book_slot(conn, event_id, company_id, student, slot, cv_path: str | None = None):
+def book_slot(conn, event_id, company_id, student, slot, cv, matricola=None):
     conn.execute(
-        text("""INSERT INTO booking (event_id, company_id, student, slot, cv_path, cv_uploaded_at)
-                VALUES (:e,:c,:s,:slot,:cv,:t)"""),
+        text("""
+            INSERT INTO booking (event_id, company_id, student, slot, cv, status, matricola)
+            VALUES (:event_id, :company_id, :student, :slot, :cv, 'manual', :matricola)
+            ON CONFLICT(event_id, company_id, student, slot) DO NOTHING
+        """),
         {
-            "e": event_id,
-            "c": company_id,
-            "s": student,
+            "event_id": event_id,
+            "company_id": company_id,
+            "student": student,
             "slot": slot,
-            "cv": cv_path,
-            "t": datetime.utcnow().isoformat() if cv_path else None,
+            "cv": cv,
+            "matricola": matricola
         }
     )
+
 
 def get_student_bookings(conn, event_id, student):
     q = text("""
@@ -398,6 +412,24 @@ def get_bookings_with_logs(conn, event_id, company_id):
         d["cv"] = "✅" if d.get("cv_path") else "—"
         rows.append(d)
     return rows
+
+def get_student_matricola(conn, student):
+    result = conn.execute(
+        text("SELECT matricola FROM student_matricola WHERE student = :s"),
+        {"s": student}
+    ).scalar()
+    return result
+
+def save_student_matricola(conn, student, email, matricola):
+    conn.execute(
+        text("""
+            INSERT INTO student_matricola (student, matricola)
+            VALUES (:s, :m)
+            ON CONFLICT(student) DO UPDATE SET matricola = :m
+        """),
+        {"s": student, "m": matricola}
+    )
+
 
 # ------------------- QR helpers (admin) -------------------
 try:
