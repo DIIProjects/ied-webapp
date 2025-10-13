@@ -45,6 +45,14 @@ def render_student(event):
 
         st.markdown("---")
 
+        # --- Check per plenaria ---
+        plenary_attend = st.checkbox(
+            "☑️ I will attend to the plenary session "
+            "(REMEMBER: the attendance to the plenary session is mandatory to earn the type F credit.)"
+            )
+
+        st.markdown("---")
+
         # --- Informativa Privacy ---
         st.markdown("""
         #### Informativa sul trattamento dei dati personali
@@ -64,10 +72,12 @@ def render_student(event):
                 st.error("⚠️ Inserisci una matricola valida.")
             elif not agree_info or not agree_share:
                 st.error("⚠️ Devi accettare entrambe le dichiarazioni per continuare.")
+            elif not plenary_attend:
+                st.error("⚠️ Devi confermare la partecipazione alla plenary session.")
             else:
                 with engine.begin() as conn:
                     # Salva matricola (puoi aggiungere colonne per i consensi se vuoi)
-                    save_student_matricola(conn, student, student, matricola_input.strip())
+                    save_student_matricola(conn, student, student, matricola_input.strip(), plenary=1)
                 st.session_state["matricola"] = matricola_input.strip()
                 st.success("✅ Matricola e consensi salvati con successo!")
                 st.rerun()

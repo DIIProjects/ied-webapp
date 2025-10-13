@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS student (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
     name TEXT,
-    matricola TEXT
+    matricola TEXT,
+    plenary_attendance INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS student_matricola (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -415,21 +416,23 @@ def get_bookings_with_logs(conn, event_id, company_id):
 
 def get_student_matricola(conn, student):
     result = conn.execute(
-        text("SELECT matricola FROM student_matricola WHERE student = :s"),
+        text("SELECT matricola FROM student WHERE name = :s"),
         {"s": student}
     ).scalar()
     return result
 
-def save_student_matricola(conn, student, email, matricola):
+def save_student_matricola(conn, student, email, matricola, plenary=0):
     conn.execute(
         text("""
-            INSERT INTO student_matricola (student, matricola)
-            VALUES (:s, :m)
-            ON CONFLICT(student) DO UPDATE SET matricola = :m
+            INSERT INTO student (name, email, matricola, plenary_attendance)
+            VALUES (:s, :e, :m, :p)
+            ON CONFLICT(email) DO UPDATE
+            SET name = excluded.name,
+                matricola = excluded.matricola,
+                plenary_attendance = excluded.plenary_attendance
         """),
-        {"s": student, "m": matricola}
+        {"s": student, "e": email, "m": matricola, "p": plenary}
     )
-
 
 # ------------------- QR helpers (admin) -------------------
 try:
