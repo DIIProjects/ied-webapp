@@ -49,9 +49,9 @@ def render_student(event):
         st.markdown("""
         #### Informativa sul trattamento dei dati personali
 
-        I Suoi dati personali verranno trattati dall’**Università di Trento** conformemente all’Informativa sul trattamento dei dati personali degli studenti, già fornita e disponibile alla pagina [Privacy e protezione dei dati personali](https://www.unitn.it).
+        I Suoi dati personali verranno trattati dall’**Università di Trento** conformemente all’Informativa sul trattamento dei dati personali degli studenti, già fornita e disponibile alla pagina "Privacy e protezione dei dati personali" del sito istituzionale https://www.unitn.it.
 
-        Nello specifico — e a integrazione di quanto già previsto — nell’ambito dell’evento *Industrial Engineering Day 2025*, i seguenti dati personali (dati identificativi, contatti istituzionali, informazioni curriculari e preferenze di colloquio) verranno trattati per le finalità di cui alla **lettera w)** del paragrafo 3 della medesima informativa e comunicati alle Aziende partecipanti da Lei selezionate per i colloqui.
+        Nello specifico — e a integrazione di quanto già previsto nell'Informativa sul trattamento dei dati personali degli studenti — nell’ambito dell’evento *Industrial Engineering Day 2025*, i seguenti dati personali: dati anagrafici, email, CV per gli studenti che lo avranno inserito, verranno trattati per le finalità di cui alla lettera w) del paragrafo 3 della medesima informativa e comunicati alle Aziende partecipanti da Lei selezionate.
         """)
 
         agree_info = st.checkbox("☑️ Dichiaro di aver preso visione dell’Informativa sul trattamento dei dati personali e delle integrazioni sopra riportate.")
