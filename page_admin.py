@@ -134,6 +134,56 @@ def render_admin(event):
                 st.dataframe(df_show, use_container_width=True, hide_index=True)
                 df_show_all.append(df_show)
 
+            # --- Sezione per aggiungere prenotazioni manuali ---
+            with st.expander(f"➕ Aggiungi prenotazione per {c['name']}"):
+                with st.form(f"add_booking_{c['id']}"):
+                    colA, colB = st.columns(2)
+                    with colA:
+                        student_name = st.text_input("Nome studente", key=f"name_{c['id']}")
+                    with colB:
+                        student_email = st.text_input("Email studente", key=f"email_{c['id']}")
+
+                    # Genera lista slot disponibili
+                    available_slots = generate_slots()
+                    booked_slots = {r["slot"] for r in rows}
+                    free_slots = [s for s in available_slots if s not in booked_slots]
+
+                    slot_choice = st.selectbox(
+                        "Seleziona uno slot disponibile",
+                        free_slots,
+                        key=f"slot_{c['id']}"
+                    )
+
+                    cv_link = st.text_input("Link CV (opzionale)", key=f"cv_{c['id']}")
+
+                    submitted = st.form_submit_button("Aggiungi prenotazione")
+                    if submitted:
+                        if not (student_name and student_email and slot_choice):
+                            st.warning("⚠️ Compila tutti i campi obbligatori (nome, email, slot).")
+                        else:
+                            student_identifier = f"{student_name} <{student_email}>"
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(
+                                        text("""
+                                            INSERT INTO booking (event_id, company_id, student, slot, cv, status)
+                                            VALUES (:e, :c, :s, :slot, :cv, 'manual')
+                                            ON CONFLICT(event_id, company_id, student, slot) DO NOTHING
+                                        """),
+                                        {
+                                            "e": event["id"],
+                                            "c": c["id"],
+                                            "s": student_identifier,
+                                            "slot": slot_choice,
+                                            "cv": cv_link or None,
+                                        }
+                                    )
+                                st.success(f"✅ Prenotazione aggiunta per {student_identifier} alle {slot_choice}")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"Errore durante l'inserimento: {ex}")
+
+
         # Download CSV Rosters
         if df_show_all:
             df_rosters_csv = pd.concat(df_show_all)
