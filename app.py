@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from streamlit_autorefresh import st_autorefresh
 
 from core import engine, init_db, migrate_db, ensure_dirs, get_active_event
@@ -59,23 +60,77 @@ if "role" not in st.session_state:
                     st.error("Email o password non corretti")
 
     # --- Student ---
+    # --- helper interno per leggere gli header della tua sessione Streamlit ---
+    def _get_request_headers():
+        # Funziona da Streamlit 1.20+ (API interna, soggetta a cambiamenti)
+        try:
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+            from streamlit.web.server.server import Server
+            ctx = get_script_run_ctx()
+            s = Server.get_current()
+            if ctx is None or s is None:
+                return {}
+            session_info = s._session_info_by_id.get(ctx.session_id)
+            if session_info is None or session_info.ws is None:
+                return {}
+            return dict(session_info.ws.request.headers)
+        except Exception:
+            return {}
+
+    def _post_login_fill_identity():
+        # Leggi nome/cognome dagli header impostati da Apache
+        hdrs = _get_request_headers()
+        given = hdrs.get("x-user-givenname") or hdrs.get("X-User-GivenName")
+        sn    = hdrs.get("x-user-sn")        or hdrs.get("X-User-SN")
+        if given or sn:
+            st.session_state["role"] = "student"
+            st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip()
+            # Metti anche i campi separati se ti servono:
+            st.session_state["givenName"] = given
+            st.session_state["sn"] = sn
+            return True
+        return False
+
+    # --- UI tab ---
     with tab_student:
-        st.write("**Login studente tramite UniTN**")
-        email = st.text_input("Email accademica (@unitn.it)", key="student_email")
-        if st.button("Vai al portale UniTN", key="btn_student"):
-            if not email.endswith("@unitn.it"):
-                st.error("Usa un'email @unitn.it valida")
-            else:
-                if AUTH_MODE == "dev":
-                    # Solo in dev: login simulato
+        st.write("**Student Login with UniTN SSO**")
+
+        AUTH_MODE = os.getenv("AUTH_MODE", "prod")  # o come lo gestisci tu
+        app_home = "https://ied2025.dii.unitn.it/"  # cambia se l'app non è sulla root
+
+        # Se siamo già tornati dallo SSO, prova a leggere gli header e completare il login app
+        already_ok = _post_login_fill_identity()
+
+        if AUTH_MODE == "dev":
+            # --- flusso dev, identico al tuo ---
+            email = st.text_input("Istitutional email (@unitn.it)", key="student_email")
+            if st.button("Login (dev)"):
+                if not email.endswith("@unitn.it"):
+                    st.error("Use an @unitn.it email valid")
+                else:
                     st.session_state["role"] = "student"
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
                     st.success("Login studente simulato (dev mode)")
                     st.rerun()
-                else:
-                    # In prod, l'accesso reale avviene via Apache+Shibboleth/SAML
-                    st.markdown("[Accedi tramite UniTN SSO](https://idp.unitn.it/idp/profile/SAML2/Redirect/SSO)")
+        else:
+            # --- flusso produzione ---
+            if not already_ok:
+                # Bottone che fa redirect immediato all'SSO (niente link visibile)
+                sso_url = (
+                    "https://ied2025.dii.unitn.it/Shibboleth.sso/Login"
+                    "?entityID=https://idp.unitn.it/idp/shibboleth"
+                    f"&target={app_home}"
+                )
+                if st.button("Access with UniTN SSO"):
+                    # Redirect immediato lato client (senza mostrare link)
+                    st.markdown(
+                        f"<script>window.location.href = {repr(sso_url)};</script>",
+                        unsafe_allow_html=True,
+                    )
+                    st.stop()
+            else:
+                st.success(f"Benvenutə, {st.session_state.get('student_name','Studente/a')}!")
 
     st.stop()
 
@@ -98,4 +153,4 @@ elif role == "company":
 elif role == "admin":
     render_admin(event)
 else:
-    st.error("Ruolo sconosciuto. Eseguire logout e nuovo login.")
+    st.error("Undefined role. Execute logout and a new login.")

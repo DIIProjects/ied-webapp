@@ -38,10 +38,10 @@ def render_student(event):
 
     # --- Se la matricola non è ancora impostata ---
     if not st.session_state["matricola"]:
-        st.warning("🎓 Prima di continuare, inserisci la tua matricola e accetta le informative sulla privacy.")
+        st.warning("🎓 Before continuing, please enter your student ID number and accept the privacy notices.")
 
         # Input per la matricola
-        matricola_input = st.text_input("📘 La tua matricola", key="matricola_input")
+        matricola_input = st.text_input("📘 student ID number", key="matricola_input")
 
         st.markdown("---")
 
@@ -55,19 +55,17 @@ def render_student(event):
 
         # --- Informativa Privacy ---
         st.markdown("""
-        #### Informativa sul trattamento dei dati personali
-
-        I Suoi dati personali verranno trattati dall’**Università di Trento** conformemente all’Informativa sul trattamento dei dati personali degli studenti, già fornita e disponibile alla pagina "Privacy e protezione dei dati personali" del sito istituzionale https://www.unitn.it.
-
-        Nello specifico — e a integrazione di quanto già previsto nell'Informativa sul trattamento dei dati personali degli studenti — nell’ambito dell’evento *Industrial Engineering Day 2025*, i seguenti dati personali: dati anagrafici, email, CV per gli studenti che lo avranno inserito, verranno trattati per le finalità di cui alla lettera w) del paragrafo 3 della medesima informativa e comunicati alle Aziende partecipanti da Lei selezionate.
+        #### Your personal data will be processed by the University of Trento in accordance with the Student Privacy Notice, already provided and available on the institutional website at the page "Privacy and personal data protection" https://www.unitn.it.
+        Specifically — and in addition to what is already set out in the Student Privacy Notice — within the framework of the Industrial Engineering Day 2025 event, the following personal data: personal details, email address, and CV (for those students who have uploaded it), will be processed for the purposes referred to in letter w) of paragraph 3 of the aforementioned notice and disclosed to the Companies you have selected among the participating ones.
         """)
 
-        agree_info = st.checkbox("☑️ Dichiaro di aver preso visione dell’Informativa sul trattamento dei dati personali e delle integrazioni sopra riportate.")
-        agree_share = st.checkbox("☑️ Richiedo all’Università di Trento, ai sensi dell’art. 96 del d.lgs. 30 giugno 2003, n. 196, che i miei dati personali sopra indicati vengano comunicati alle Aziende da me selezionate.")
+        agree_info = st.checkbox("☑️ I declare that I have read the Information on the processing of personal data and the additions reported above.")
+        agree_share = st.checkbox("☑️ I request the University of Trento, pursuant to Art. 96 of Legislative Decree no. 196 of 30 June 2003, to disclose my personal data indicated above to the Companies I have selected.")
 
         st.markdown("---")
 
-        if st.button("💾 Salva e continua"):
+
+        if st.button("💾 Save and continue"):
             if not matricola_input.strip():
                 st.error("⚠️ Inserisci una matricola valida.")
             elif not agree_info or not agree_share:
