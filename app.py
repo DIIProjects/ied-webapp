@@ -116,22 +116,9 @@ if "role" not in st.session_state:
         else:
             # --- flusso produzione ---
             if not already_ok:
-                # Bottone che fa redirect immediato all'SSO (niente link visibile)
-                sso_url = (
-                    "https://ied2025.dii.unitn.it/Shibboleth.sso/Login"
-                    "?entityID=https://idp.unitn.it/idp/shibboleth"
-                    f"&target={app_home}"
-                )
-                if st.button("Access with UniTN SSO"):
-                    # Redirect immediato lato client (senza mostrare link)
-                    st.markdown(
-                        f"<script>window.location.href = {repr(sso_url)};</script>",
-                        unsafe_allow_html=True,
-                    )
-                    st.stop()
+                st.link_button("Access with UniTN SSO", "https://ied2025.dii.unitn.it/mylogin")
             else:
                 st.success(f"Benvenutə, {st.session_state.get('student_name','Studente/a')}!")
-
     st.stop()
 
 # ------------------- TOPBAR -------------------
