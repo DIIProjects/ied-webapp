@@ -96,7 +96,7 @@ def render_student(event):
     tab_companies, tab_roundtables = st.tabs(["Company Interview", "Round Tables"])
 
     with tab_companies:
-        st.subheader("My Bookings & Notifications")
+        st.subheader("My Bookings & Notifications. NOTE: at least 2 interviews for the type F credit.")
 
         student = st.session_state.get("student_name") or st.session_state["email"]
 
@@ -215,7 +215,7 @@ def render_student(event):
         # Optional link
         st.caption("Add a link (optional)")
         cv_link = st.text_input(
-            "Link for further information about your experience (GitHub, LinkedIn, Google Drive)",
+            "Link for further information about your experience (e.g., CV) (GitHub, LinkedIn, Google Drive)",
             key="cv_link_input"
         )
 
@@ -231,7 +231,7 @@ def render_student(event):
                 st.error(f"Errore: {ex}")
    
     with tab_roundtables:
-        st.subheader("Book a Round Table")
+        st.subheader("Book a Round Table  9 - 11 am")
 
         student = st.session_state.get("student_name") or st.session_state["email"]
 
