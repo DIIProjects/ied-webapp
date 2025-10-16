@@ -81,9 +81,9 @@ if "role" not in st.session_state:
         # Leggi nome/cognome dagli header impostati da Apache
         hdrs = _get_request_headers()
         st.write("DEBUG headers:", hdrs)  # utile in fase di test
-        given = hdrs.get("x-user-givenname") or hdrs.get("X-User-GivenName")
-        sn    = hdrs.get("x-user-sn")        or hdrs.get("X-User-SN")
-        idada = hdrs.get("x-user-idada")     or hdrs.get("X-User-IdAda")
+        given = hdrs.get("X-User-GivenName") or hdrs.get("givenName")
+        sn    = hdrs.get("X-User-SN")        or hdrs.get("sn")
+        idada = hdrs.get("X-User-IdAda")     or hdrs.get("idada")
         if given or sn or idada:
             st.session_state["role"] = "student"
             st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
