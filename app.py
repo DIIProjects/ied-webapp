@@ -80,6 +80,7 @@ if "role" not in st.session_state:
     def _post_login_fill_identity():
         # Leggi nome/cognome dagli header impostati da Apache
         hdrs = _get_request_headers()
+        print(hdrs)
         st.write("DEBUG headers:", hdrs)  # utile in fase di test
         given = hdrs.get("X-User-GivenName") or hdrs.get("givenName")
         sn    = hdrs.get("X-User-SN")        or hdrs.get("sn")
