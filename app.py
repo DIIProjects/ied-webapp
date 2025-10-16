@@ -100,8 +100,8 @@ if "role" not in st.session_state:
     with tab_student:
         st.write("**Student Login with UniTN SSO**")
 
-        AUTH_MODE = os.getenv("AUTH_MODE", "prod")  # o come lo gestisci tu
-        app_home = "https://ied2025.dii.unitn.it/"  # cambia se l'app non è sulla root
+        AUTH_MODE = os.getenv("AUTH_MODE", "prod")
+        app_home = "https://ied2025.dii.unitn.it/"  # root app
 
         if AUTH_MODE == "dev":
             # --- flusso dev ---
@@ -114,18 +114,15 @@ if "role" not in st.session_state:
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
                     st.success("Login studente simulato (dev mode)")
-                    st.rerun()
+                    st.experimental_rerun()
         else:
             # --- flusso produzione ---
-            # Legge Shibboleth SSO attributes dai query params
             query_params = st.query_params
 
-            given = query_params.get("givenName")
-            sn = query_params.get("sn")
-            idada = query_params.get("idada")
-
-            print("Query params:", query_params)
-            print(given, sn, idada)
+            # Leggi gli attributi passati dallo script CGI
+            given = query_params.get("givenName", [None])[0]
+            sn = query_params.get("sn", [None])[0]
+            idada = query_params.get("idada", [None])[0]
 
             if given or sn or idada:
                 st.session_state["role"] = "student"
@@ -135,9 +132,13 @@ if "role" not in st.session_state:
                 st.session_state["idada"] = idada
                 st.success(f"Benvenutə, {st.session_state['student_name']}!")
             else:
-                # Se non ci sono query params, mostra bottone SSO
-                st.link_button("Access with UniTN SSO", f"{app_home}mylogin")
-    st.stop()
+                # Nessun query param: mostra bottone SSO
+                st.markdown(
+                    f"[Access with UniTN SSO]({app_home}mylogin)",
+                    unsafe_allow_html=True
+                )
+
+    st.stop()  # blocca l'esecuzione fino al login
 
 # ------------------- TOPBAR -------------------
 col1, col2 = st.columns([3, 1])
