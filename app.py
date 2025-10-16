@@ -96,20 +96,16 @@ if "role" not in st.session_state:
             return True
         return False
 
-    # --- UI tab ---
+    # --- Student ---
     with tab_student:
         st.write("**Student Login with UniTN SSO**")
 
         AUTH_MODE = os.getenv("AUTH_MODE", "prod")  # o come lo gestisci tu
         app_home = "https://ied2025.dii.unitn.it/"  # cambia se l'app non è sulla root
 
-        # Se siamo già tornati dallo SSO, prova a leggere gli header e completare il login app
-        already_ok = _post_login_fill_identity()
-        print(already_ok)
-
         if AUTH_MODE == "dev":
-            # --- flusso dev, identico al tuo ---
-            email = st.text_input("Istitutional email (@unitn.it)", key="student_email")
+            # --- flusso dev ---
+            email = st.text_input("Institutional email (@unitn.it)", key="student_email")
             if st.button("Login (dev)"):
                 if not email.endswith("@unitn.it"):
                     st.error("Use an @unitn.it email valid")
@@ -121,10 +117,22 @@ if "role" not in st.session_state:
                     st.rerun()
         else:
             # --- flusso produzione ---
-            if not already_ok:
-                st.link_button("Access with UniTN SSO", "https://ied2025.dii.unitn.it/mylogin")
+            # Legge Shibboleth SSO attributes dai query params
+            query_params = st.experimental_get_query_params()
+            given = query_params.get("givenName", [None])[0]
+            sn = query_params.get("sn", [None])[0]
+            idada = query_params.get("idada", [None])[0]
+            print(given, sn, idada)
+            if given or sn or idada:
+                st.session_state["role"] = "student"
+                st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
+                st.session_state["givenName"] = given
+                st.session_state["sn"] = sn
+                st.session_state["idada"] = idada
+                st.success(f"Benvenutə, {st.session_state['student_name']}!")
             else:
-                st.success(f"Benvenutə, {st.session_state.get('student_name','Studente/a')}!")
+                # Se non ci sono query params, mostra bottone SSO
+                st.link_button("Access with UniTN SSO", f"{app_home}mylogin")
     st.stop()
 
 # ------------------- TOPBAR -------------------
