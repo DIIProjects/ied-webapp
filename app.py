@@ -118,11 +118,15 @@ if "role" not in st.session_state:
         else:
             # --- flusso produzione ---
             # Legge Shibboleth SSO attributes dai query params
-            query_params = st.experimental_get_query_params()
-            given = query_params.get("givenName", [None])[0]
-            sn = query_params.get("sn", [None])[0]
-            idada = query_params.get("idada", [None])[0]
+            query_params = st.query_params
+
+            given = query_params.get("givenName")
+            sn = query_params.get("sn")
+            idada = query_params.get("idada")
+
+            print("Query params:", query_params)
             print(given, sn, idada)
+
             if given or sn or idada:
                 st.session_state["role"] = "student"
                 st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
