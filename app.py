@@ -103,7 +103,8 @@ if "role" not in st.session_state:
 
         # Se siamo già tornati dallo SSO, prova a leggere gli header e completare il login app
         already_ok = _post_login_fill_identity()
-
+        print(already_ok)
+        
         if AUTH_MODE == "dev":
             # --- flusso dev, identico al tuo ---
             email = st.text_input("Istitutional email (@unitn.it)", key="student_email")
