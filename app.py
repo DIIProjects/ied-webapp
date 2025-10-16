@@ -84,6 +84,7 @@ if "role" not in st.session_state:
         given = hdrs.get("X-User-GivenName") or hdrs.get("givenName")
         sn    = hdrs.get("X-User-SN")        or hdrs.get("sn")
         idada = hdrs.get("X-User-IdAda")     or hdrs.get("idada")
+        print(given, sn, idada)
         if given or sn or idada:
             st.session_state["role"] = "student"
             st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
@@ -104,7 +105,7 @@ if "role" not in st.session_state:
         # Se siamo già tornati dallo SSO, prova a leggere gli header e completare il login app
         already_ok = _post_login_fill_identity()
         print(already_ok)
-        
+
         if AUTH_MODE == "dev":
             # --- flusso dev, identico al tuo ---
             email = st.text_input("Istitutional email (@unitn.it)", key="student_email")
