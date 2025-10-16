@@ -135,7 +135,7 @@ if "role" not in st.session_state:
                 # Nessun query param: mostra bottone SSO
                 st.markdown(
                     f"[Access with UniTN SSO]({app_home}mylogin)",
-                    unsafe_allow_html=True
+                    #unsafe_allow_html=True
                 )
 
     st.stop()  # blocca l'esecuzione fino al login
