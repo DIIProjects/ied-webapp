@@ -125,12 +125,10 @@ if "role" not in st.session_state:
                     st.experimental_rerun()
         else:
             # --- flusso produzione ---
-            query_params = st.experimental_get_query_params()  # più sicuro
-
-            # Leggi gli attributi passati dallo script CGI
-            given = query_params.get("givenName", [""])[0]  # "" se mancante
-            sn = query_params.get("sn", [""])[0]
-            idada = query_params.get("idada", [""])[0]
+            query_params = st.query_params  # dizionario di liste
+            given = query_params.get("givenName", [None])[0]
+            sn = query_params.get("sn", [None])[0]
+            idada = query_params.get("idada", [None])[0]
 
             if given or sn or idada:
                 st.session_state["role"] = "student"
