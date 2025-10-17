@@ -125,15 +125,17 @@ if "role" not in st.session_state:
                     st.experimental_rerun()
         else:
             # --- flusso produzione ---
-            query_params = st.query_params
+            query_params = st.experimental_get_query_params()  # più sicuro
 
             # Leggi gli attributi passati dallo script CGI
-            given = query_params.get("givenName", None)
-            sn = query_params.get("sn", None)
-            idada = query_params.get("idada", None)
+            given = query_params.get("givenName", [""])[0]  # "" se mancante
+            sn = query_params.get("sn", [""])[0]
+            idada = query_params.get("idada", [""])[0]
+
             if given or sn or idada:
                 st.session_state["role"] = "student"
-                st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
+                # Usa nome completo se possibile, altrimenti idada
+                st.session_state["student_name"] = f"{given} {sn}".strip() or idada
                 st.session_state["givenName"] = given
                 st.session_state["sn"] = sn
                 st.session_state["idada"] = idada
@@ -142,10 +144,9 @@ if "role" not in st.session_state:
                 # Nessun query param: mostra bottone SSO
                 st.markdown(
                     f"[Access with UniTN SSO]({app_home}mylogin)",
-                    #unsafe_allow_html=True
+                    unsafe_allow_html=True
                 )
-
-    st.stop()  # blocca l'esecuzione fino al login
+        st.stop()  # blocca l'esecuzione fino al login
 
 # ------------------- TOPBAR -------------------
 col1, col2 = st.columns([3, 1])
