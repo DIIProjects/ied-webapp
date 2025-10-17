@@ -96,6 +96,14 @@ if "role" not in st.session_state:
             return True
         return False
 
+    def get_param(params, key):
+        val = params.get(key)
+        if not val:
+            return None
+        if isinstance(val, list):
+            return val[0]
+        return val  # se è stringa
+
     # --- Student ---
     with tab_student:
         st.write("**Student Login with UniTN SSO**")
@@ -120,10 +128,9 @@ if "role" not in st.session_state:
             query_params = st.query_params
 
             # Leggi gli attributi passati dallo script CGI
-            given = query_params.get("givenName", [None])[0]
-            sn = query_params.get("sn", [None])[0]
-            idada = query_params.get("idada", [None])[0]
-
+            given = query_params.get("givenName", None)
+            sn = query_params.get("sn", None)
+            idada = query_params.get("idada", None)
             if given or sn or idada:
                 st.session_state["role"] = "student"
                 st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
