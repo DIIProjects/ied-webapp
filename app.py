@@ -125,40 +125,40 @@ if "role" not in st.session_state:
 
         else:
         # --- flusso produzione ---
-        if "role" not in st.session_state:  # solo se non loggato
-            query_params = st.query_params
-            given = query_params.get("givenName", [None])[0]
-            sn = query_params.get("sn", [None])[0]
-            idada = query_params.get("idada", [None])[0]
+            if "role" not in st.session_state:  # solo se non loggato
+                query_params = st.query_params
+                given = query_params.get("givenName", [None])[0]
+                sn = query_params.get("sn", [None])[0]
+                idada = query_params.get("idada", [None])[0]
 
-            if given or sn or idada:
-                # Login riuscito
-                st.session_state["role"] = "student"
-                st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
-                st.session_state["givenName"] = given
-                st.session_state["sn"] = sn
-                st.session_state["idada"] = idada
+                if given or sn or idada:
+                    # Login riuscito
+                    st.session_state["role"] = "student"
+                    st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
+                    st.session_state["givenName"] = given
+                    st.session_state["sn"] = sn
+                    st.session_state["idada"] = idada
 
-                # 🔑 Pulisci i query params per evitare loop
-                st.query_params.clear()
+                    # 🔑 Pulisci i query params per evitare loop
+                    st.query_params.clear()
 
-                st.success(f"Benvenutə, {st.session_state['student_name']}!")
+                    st.success(f"Benvenutə, {st.session_state['student_name']}!")
+                else:
+                    # 🔗 Mostra bottone che manda ad Apache / Shibboleth
+                    st.markdown(
+                        f'<a href="{app_home}mylogin" target="_self">'
+                        '<button style="padding:10px 20px; font-size:16px;">Access with UniTN SSO</button>'
+                        '</a>',
+                        unsafe_allow_html=True
+                    )
             else:
-                # 🔗 Mostra bottone che manda ad Apache / Shibboleth
-                st.markdown(
-                    f'<a href="{app_home}mylogin" target="_self">'
-                    '<button style="padding:10px 20px; font-size:16px;">Access with UniTN SSO</button>'
-                    '</a>',
-                    unsafe_allow_html=True
-                )
-        else:
-            st.success(f"Sei autenticato come {st.session_state['student_name']}")
+                st.success(f"Sei autenticato come {st.session_state['student_name']}")
 
-            # --- Bottone logout ---
-            if st.button("Logout"):
-                st.session_state.clear()
-                st.query_params.clear()
-                st.rerun()
+                # --- Bottone logout ---
+                if st.button("Logout"):
+                    st.session_state.clear()
+                    st.query_params.clear()
+                    st.rerun()
 
 
 # ------------------- TOPBAR -------------------
