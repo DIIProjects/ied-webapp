@@ -122,31 +122,34 @@ if "role" not in st.session_state:
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
                     st.success("Login studente simulato (dev mode)")
-                    st.rerun()
         else:
             # --- flusso produzione ---
-            query_params = st.query_params  # dict con liste
-            given = query_params.get("givenName", [None])[0]
-            sn = query_params.get("sn", [None])[0]
-            idada = query_params.get("idada", [None])[0]
+            if "role" not in st.session_state:  # solo se non sei già loggato
+                query_params = st.query_params
+                given = query_params.get("givenName", [None])[0]
+                sn = query_params.get("sn", [None])[0]
+                idada = query_params.get("idada", [None])[0]
 
-            if given or sn or idada:
-                # Attributi trovati → login
-                st.session_state["role"] = "student"
-                st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
-                st.session_state["givenName"] = given
-                st.session_state["sn"] = sn
-                st.session_state["idada"] = idada
-                st.success(f"Benvenutə, {st.session_state['student_name']}!")
-                st.rerun()
+                if given or sn or idada:
+                    # Attributi trovati → login
+                    st.session_state["role"] = "student"
+                    st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
+                    st.session_state["givenName"] = given
+                    st.session_state["sn"] = sn
+                    st.session_state["idada"] = idada
+                    st.success(f"Benvenutə, {st.session_state['student_name']}!")
+                else:
+                    # Nessun attributo: mostra bottone per riprovare login SSO
+                    st.markdown(
+                        f"[Access with UniTN SSO]({app_home}mylogin)",
+                        unsafe_allow_html=True
+                    )
             else:
-                # Nessun attributo: mostra bottone per riprovare login SSO
-                st.markdown(
-                    f"[Access with UniTN SSO]({app_home}mylogin)",
-                    unsafe_allow_html=True
-                )
+                # Già loggato → mostra messaggio
+                st.success(f"Sei già autenticato come {st.session_state['student_name']}")
 
         st.stop()  # blocca qui finché non hai fatto login
+
 
 
 # ------------------- TOPBAR -------------------
