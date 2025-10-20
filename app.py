@@ -122,7 +122,7 @@ if "role" not in st.session_state:
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
                     st.success("Login studente simulato (dev mode)")
-                    st.experimental_rerun()
+                    st.rerun()
         else:
             # --- flusso produzione ---
             query_params = st.query_params  # dict
@@ -146,7 +146,7 @@ if "role" not in st.session_state:
                 st.session_state["sn"] = None
                 st.session_state["idada"] = None
                 st.warning("Nessun attributo ricevuto da SSO, accesso come utente generico.")
-                st.experimental_rerun()
+                st.rerun()
 
         st.stop()  # blocca l'esecuzione fino al login
 
