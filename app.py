@@ -125,25 +125,29 @@ if "role" not in st.session_state:
                     st.experimental_rerun()
         else:
             # --- flusso produzione ---
-            query_params = st.query_params  # dizionario di liste
+            query_params = st.query_params  # dict
             given = query_params.get("givenName", [None])[0]
             sn = query_params.get("sn", [None])[0]
             idada = query_params.get("idada", [None])[0]
 
             if given or sn or idada:
+                # Login con attributi reali
                 st.session_state["role"] = "student"
-                # Usa nome completo se possibile, altrimenti idada
-                st.session_state["student_name"] = f"{given} {sn}".strip() or idada
+                st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
                 st.session_state["givenName"] = given
                 st.session_state["sn"] = sn
                 st.session_state["idada"] = idada
                 st.success(f"Benvenutə, {st.session_state['student_name']}!")
             else:
-                # Nessun query param: mostra bottone SSO
-                st.markdown(
-                    f"[Access with UniTN SSO]({app_home}mylogin)",
-                    unsafe_allow_html=True
-                )
+                # Nessun attributo ricevuto: login comunque
+                st.session_state["role"] = "student"
+                st.session_state["student_name"] = "Unknown Student"
+                st.session_state["givenName"] = None
+                st.session_state["sn"] = None
+                st.session_state["idada"] = None
+                st.warning("Nessun attributo ricevuto da SSO, accesso come utente generico.")
+                st.experimental_rerun()
+
         st.stop()  # blocca l'esecuzione fino al login
 
 # ------------------- TOPBAR -------------------
