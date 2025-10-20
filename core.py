@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import create_engine, text
 import streamlit as st
+from werkzeug.security import generate_password_hash
 
 # ------------------- secrets/env helpers (no import from auth to avoid cycles) -------------------
 def read_secret(key: str, default=None):
@@ -100,8 +101,10 @@ CREATE TABLE IF NOT EXISTS notification (
 CREATE TABLE IF NOT EXISTS student (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
-    name TEXT,
-    matricola TEXT,
+    givenName TEXT NOT NULL,
+    sn TEXT NOT NULL,
+    matricola TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
     plenary_attendance INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS student_matricola (
@@ -414,25 +417,49 @@ def get_bookings_with_logs(conn, event_id, company_id):
         rows.append(d)
     return rows
 
-def get_student_matricola(conn, student):
+def get_student_matricola(conn, email):
+    """
+    Restituisce la matricola dello studente dato l'email
+    """
     result = conn.execute(
-        text("SELECT matricola FROM student WHERE name = :s"),
-        {"s": student}
+        text("SELECT matricola FROM student WHERE email = :e"),
+        {"e": email.lower().strip()}
     ).scalar()
     return result
 
-def save_student_matricola(conn, student, email, matricola, plenary=0):
+def save_student_matricola(conn, givenName, sn, email, matricola, plenary=0, password=None):
+    """
+    Salva o aggiorna i dati dello studente.
+    La password viene aggiornata solo se fornita.
+    """
+    if password:
+        hashed_pw = generate_password_hash(password)
+        pw_sql = ", password = :password"
+    else:
+        hashed_pw = None
+        pw_sql = ""
+
     conn.execute(
-        text("""
-            INSERT INTO student (name, email, matricola, plenary_attendance)
-            VALUES (:s, :e, :m, :p)
+        text(f"""
+            INSERT INTO student (givenName, sn, email, matricola, plenary_attendance{', password' if password else ''})
+            VALUES (:givenName, :sn, :email, :matricola, :plenary_attendance{', :password' if password else ''})
             ON CONFLICT(email) DO UPDATE
-            SET name = excluded.name,
+            SET givenName = excluded.givenName,
+                sn = excluded.sn,
                 matricola = excluded.matricola,
                 plenary_attendance = excluded.plenary_attendance
+                {pw_sql if password else ''}
         """),
-        {"s": student, "e": email, "m": matricola, "p": plenary}
+        {
+            "givenName": givenName,
+            "sn": sn,
+            "email": email.lower().strip(),
+            "matricola": matricola,
+            "plenary_attendance": plenary,
+            **({"password": hashed_pw} if password else {})
+        }
     )
+
 
 # ------------------- QR helpers (admin) -------------------
 try:

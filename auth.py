@@ -2,8 +2,112 @@
 import os
 import streamlit as st
 from dotenv import load_dotenv
+from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import text
+from core import engine
 
 load_dotenv()
+
+# ------------------- STUDENT USER -------------------
+
+def create_student_user(conn, givenName, sn, matricola, email, password):
+    """
+    Crea uno studente con password hashata.
+    Restituisce lo student_id.
+    """
+    if not password:
+        raise ValueError("Password cannot be empty!")
+
+    hashed_pw = generate_password_hash(password)
+
+    conn.execute(text("""
+        INSERT INTO student (givenName, sn, matricola, email, password)
+        VALUES (:givenName, :sn, :matricola, :email, :password)
+    """), {
+        "givenName": givenName.strip(),
+        "sn": sn.strip(),
+        "matricola": matricola.strip(),
+        "email": email.lower().strip(),
+        "password": hashed_pw
+    })
+
+    student_id = conn.execute(
+        text("SELECT id FROM student WHERE email=:email"),
+        {"email": email.lower().strip()}
+    ).scalar()
+
+    print(f"DEBUG: created student_id={student_id}, hashed_pw={hashed_pw}")
+    return student_id
+
+def find_student_user(email, password=None, conn=None):
+    """
+    Trova studente per email. Se password fornita, verifica l'hash.
+    """
+    close_conn = False
+    if conn is None:
+        from core import engine
+        conn = engine.connect()
+        close_conn = True
+
+    q = "SELECT * FROM student WHERE email=:email"
+    res = conn.execute(text(q), {"email": email.lower().strip()}).mappings().first()
+
+    if close_conn:
+        conn.close()
+
+    if not res:
+        return None
+
+    if password:
+        if not check_password_hash(res["password"], password):
+            return None
+
+    return res
+
+def create_student_if_not_exists(email: str, givenName: str, sn: str, matricola: str, password: str = None, plenary_attendance: int = 0):
+    """
+    Inserisce lo studente nel DB solo se non esiste già.
+    Controlla unicità su email e matricola.
+    Password opzionale, viene salvata come hash se fornita.
+    """
+    email_clean = email.lower().strip()
+    matricola_clean = matricola.strip()
+
+    with engine.begin() as conn:
+        # Controllo esistenza email
+        exists_email = conn.execute(
+            text("SELECT 1 FROM student WHERE email=:e"),
+            {"e": email_clean}
+        ).scalar()
+        if exists_email:
+            raise ValueError(f"Email '{email_clean}' già registrata")
+
+        # Controllo unicità matricola
+        exists_matricola = conn.execute(
+            text("SELECT 1 FROM student WHERE matricola=:m"),
+            {"m": matricola_clean}
+        ).scalar()
+        if exists_matricola:
+            raise ValueError(f"Matricola '{matricola_clean}' già registrata")
+
+        # Hash password se fornita
+        pw_hash = generate_password_hash(password) if password else ''
+
+        # Inserimento
+        conn.execute(
+            text("""
+                INSERT INTO student (email, givenName, sn, matricola, plenary_attendance, password)
+                VALUES (:email, :givenName, :sn, :matricola, :plenary, :pw)
+            """),
+            {
+                "email": email_clean,
+                "givenName": givenName.strip(),
+                "sn": sn.strip(),
+                "matricola": matricola_clean,
+                "plenary": plenary_attendance,
+                "pw": pw_hash
+            }
+        )
 
 # ------------------- secrets/env helpers -------------------
 def read_secret(key: str, default=None):

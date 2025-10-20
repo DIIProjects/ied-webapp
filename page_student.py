@@ -1,8 +1,7 @@
-# page_student.py
 import streamlit as st
-import pandas as pd
-from sqlalchemy import text
 from datetime import datetime, timedelta
+from sqlalchemy import text, Table, MetaData, update
+from auth import find_student_user
 
 from core import (
     engine,
@@ -17,157 +16,113 @@ from core import (
     get_roundtables,
     get_student_roundtable_bookings,
     book_roundtable,
-    get_student_matricola,
-    save_student_matricola
 )
+from auth import find_student_user
+
+def student_first_access(email: str):
+    """Flusso di primo accesso per lo studente."""
+    
+    email = email.lower().strip()
+    
+    # Recupera studente
+    with engine.begin() as conn:
+        student = find_student_user(email, conn=conn)
+
+    if not student:
+        st.error("Studente non trovato nel database. Contatta l'amministratore.")
+        st.stop()
+
+    st.title(f"Welcome, {student['givenName']} {student['sn']} 🎓")
+
+    # --- Plenary session ---
+    plenary_attend = st.checkbox(
+        "☑️ I will attend the plenary session "
+        "(attendance is mandatory for type F credit)",
+        value=bool(student.get("plenary_attendance"))
+    )
+
+    # --- Privacy agreement ---
+    st.markdown("""
+    #### Privacy Notice
+    Your personal data will be processed by the University of Trento in accordance with the Student Privacy Notice. 
+    By continuing, you agree to the processing and sharing of your data with participating companies.
+    """)
+    agree_info = st.checkbox("☑️ I have read the Information on the processing of personal data.")
+    agree_share = st.checkbox(
+        "☑️ I agree to share my personal data with the participating companies."
+    )
+
+    if st.button("💾 Save and continue"):
+        if not plenary_attend:
+            st.error("⚠️ You must confirm attendance to the plenary session.")
+        elif not agree_info or not agree_share:
+            st.error("⚠️ You must accept both privacy statements to continue.")
+        else:
+            # --- Aggiorna database ---
+            metadata = MetaData()
+            student_table = Table('student', metadata, autoload_with=engine)
+            
+            stmt = (
+                update(student_table)
+                .where(student_table.c.email == email)
+                .values(plenary_attendance=1)
+            )
+            
+            with engine.begin() as conn:
+                conn.execute(stmt)
+            
+            st.success("✅ Your attendance and privacy agreements have been saved!")
+            st.session_state["plenary_done"] = True
+            st.rerun()
+
 
 def render_student(event):
     """Render the Student area."""
-    student = st.session_state.get("student_name") or st.session_state["email"]
-    st.title("Student Area")
-
-    # --- Carica matricola studente dal DB ---
-    with engine.begin() as conn:
-        matricola = get_student_matricola(conn, student)
-
-    # Se la matricola non è ancora in sessione, caricala
-    if "matricola" not in st.session_state:
-        st.session_state["matricola"] = matricola
-
-    st.markdown("### 👤 Student Information")
-
-    # --- Se la matricola non è ancora impostata ---
-    if not st.session_state["matricola"]:
-        st.warning("🎓 Before continuing, please enter your student ID number and accept the privacy notices.")
-
-        # Input per la matricola
-        matricola_input = st.text_input("📘 student ID number", key="matricola_input")
-
-        st.markdown("---")
-
-        # --- Check per plenaria ---
-        plenary_attend = st.checkbox(
-            "☑️ I will attend to the plenary session "
-            "(REMEMBER: the attendance to the plenary session is mandatory to earn the type F credit.)"
-            )
-
-        st.markdown("---")
-
-        # --- Informativa Privacy ---
-        st.markdown("""
-        #### Your personal data will be processed by the University of Trento in accordance with the Student Privacy Notice, already provided and available on the institutional website at the page "Privacy and personal data protection" https://www.unitn.it.
-        Specifically — and in addition to what is already set out in the Student Privacy Notice — within the framework of the Industrial Engineering Day 2025 event, the following personal data: personal details, email address, and CV (for those students who have uploaded it), will be processed for the purposes referred to in letter w) of paragraph 3 of the aforementioned notice and disclosed to the Companies you have selected among the participating ones.
-        """)
-
-        agree_info = st.checkbox("☑️ I declare that I have read the Information on the processing of personal data and the additions reported above.")
-        agree_share = st.checkbox("☑️ I request the University of Trento, pursuant to Art. 96 of Legislative Decree no. 196 of 30 June 2003, to disclose my personal data indicated above to the Companies I have selected.")
-
-        st.markdown("---")
-
-
-        if st.button("💾 Save and continue"):
-            if not matricola_input.strip():
-                st.error("⚠️ Inserisci una matricola valida.")
-            elif not agree_info or not agree_share:
-                st.error("⚠️ Devi accettare entrambe le dichiarazioni per continuare.")
-            elif not plenary_attend:
-                st.error("⚠️ Devi confermare la partecipazione alla plenary session.")
-            else:
-                with engine.begin() as conn:
-                    # Salva matricola (puoi aggiungere colonne per i consensi se vuoi)
-                    save_student_matricola(conn, student, student, matricola_input.strip(), plenary=1)
-                st.session_state["matricola"] = matricola_input.strip()
-                st.success("✅ Matricola e consensi salvati con successo!")
-                st.rerun()
-
+    email = st.session_state.get("email")
+    if not email:
+        st.error("Email non disponibile. Contatta l'amministratore.")
         st.stop()
 
-    # --- Se la matricola è già presente ---
-    else:
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.info(f"👤 **Matricola:** `{st.session_state['matricola']}`")
-        with col2:
-            if st.button("Edit"):
-                st.session_state["matricola"] = None
-                st.rerun()
+    # Primo accesso: plenaria + privacy
+    if "plenary_done" not in st.session_state:
+        student_first_access(email)
+        st.stop()
 
+    # --- Mostra info studente ---
+    with engine.begin() as conn:
+        student = find_student_user(email, conn=conn)
+
+    student_name = f"{student['givenName']} {student['sn']}"
+
+    st.markdown(f"### 👤 {student_name}")
+    st.info(f"✅ Matricola: `{student['matricola']}`")
 
     tab_companies, tab_roundtables = st.tabs(["Company Interview", "Round Tables"])
 
+    # --- COMPANY INTERVIEWS ---
     with tab_companies:
-        st.subheader("My Bookings & Notifications. NOTE: at least 2 interviews for the type F credit.")
+        st.subheader("My Bookings & Notifications")
 
-        student = st.session_state.get("student_name") or st.session_state["email"]
-
-        # --- Load student bookings ---
         with engine.begin() as conn:
-            myb = get_student_bookings(conn, event["id"], student)
-            # Notifications
-            notifs = get_unread_notifications(conn, event["id"], student)
+            # Notifiche non lette
+            notifs = get_unread_notifications(conn, event["id"], email)
             for n in notifs:
                 colA, colB = st.columns([4, 1])
                 with colA:
                     st.info(f"🔔 {n['message']}")
                 with colB:
-                    if st.button("Segna letta", key=f"read_{n['id']}"):
+                    if st.button("Mark as read", key=f"read_{n['id']}"):
                         mark_notification_read(conn, n["id"])
                         st.rerun()
 
-            # Student bookings
-            myb = get_student_bookings(conn, event["id"], student)
+            # Prenotazioni studente
+            myb = get_student_bookings(conn, event["id"], email)
 
         st.subheader("My Bookings")
-
         if myb:
             now = datetime.now()
-            event_date = event.get("date") or datetime.today().strftime("%Y-%m-%d")
-
             for b in myb:
-                # Parsing dello slot
-                try:
-                    slot_time = datetime.fromisoformat(b["slot"])
-                except ValueError:
-                    # slot solo orario, combino con la data dell'evento
-                    hour, minute = map(int, b["slot"].split(":"))
-                    slot_time = datetime.strptime(event_date, "%Y-%m-%d").replace(hour=hour, minute=minute)
-
-                # Calcolo quanto manca al colloquio in ore
-                time_to_interview = (slot_time - now).total_seconds() / 3600
-
-                col1, col2 = st.columns([4, 2])
-                with col1:
-                    st.write(f"🕒 {b['slot']} — **{b['company']}**")
-
-                with col2:
-                    if time_to_interview > 1:
-                        if st.button("❌ Delete", key=f"cancel_{b['company']}_{b['slot']}"):
-                            try:
-                                with engine.begin() as conn:
-                                    conn.execute(
-                                        text("""
-                                            DELETE FROM booking
-                                            WHERE event_id = :e AND company_id = :c AND student = :s AND slot = :slot
-                                        """),
-                                        {
-                                            "e": event["id"],
-                                            "c": b["company_id"],
-                                            "s": student,
-                                            "slot": b["slot"]
-                                        }
-                                    )
-                                st.success(f"Booking with {b['company']} at {b['slot']} successfully deleted.")
-                                # Forza refresh
-                                try:
-                                    st.rerun()
-                                except Exception:
-                                    st.session_state["book_update"] = st.session_state.get("book_update", 0) + 1
-                            except Exception as ex:
-                                st.error(f"Cancellation error: {ex}")
-                    else:
-                        # Blocco cancellazione se manca meno di 1 ora
-                        st.button("❌ Delete (not available)", key=f"cancel_disabled_{b['company']}_{b['slot']}", disabled=True)
-                        st.caption("⏰ It is no longer possible to cancel the reservation (less than 1 hour at the interview).")
+                st.write(f"🕒 {b['slot']} — **{b['company']}**")
         else:
             st.info("No Bookings")
 
@@ -181,119 +136,53 @@ def render_student(event):
 
         with engine.begin() as conn:
             booked = {b["slot"] for b in get_bookings(conn, event["id"], comp_id)}
-            myb = get_student_bookings(conn, event["id"], student)
+            myb = get_student_bookings(conn, event["id"], email)
 
-        # --- Slot filtering ---
-        def parse_slot(slot_str):
-            try:
-                return datetime.strptime(slot_str, "%H:%M")
-            except ValueError:
-                return datetime.fromisoformat(slot_str)
-
-        my_booked_times = [parse_slot(b["slot"]) for b in myb]
+        # --- Filter slots ---
         slots = generate_slots()
-        available = []
-        excluded_close = []
+        my_booked_times = [datetime.strptime(b["slot"], "%H:%M") for b in myb]
+        available = [s for s in slots if datetime.strptime(s, "%H:%M") not in my_booked_times and s not in booked]
 
-        for s in slots:
-            if s in booked:
-                continue
-            s_time = parse_slot(s)
-            if any(abs((s_time - t).total_seconds()) < 30*60 for t in my_booked_times):
-                excluded_close.append(s)
-                continue
-            available.append(s)
-
-        if excluded_close:
-            st.warning(f"⚠️ {len(excluded_close)} hidden slots because they are too close to reservations already made (±30 min).")
         if not available:
-            st.warning("No slots available for this company (considering the 30 minute limit).")
+            st.warning("No slots available for this company.")
             st.stop()
 
         slot_choice = st.selectbox("Available slots", available)
-
-        # Optional link
-        st.caption("Add a link (optional)")
-        cv_link = st.text_input(
-            "Link for further information about your experience (e.g., CV) (GitHub, LinkedIn, Google Drive)",
-            key="cv_link_input"
-        )
+        cv_link = st.text_input("Optional link / CV", key="cv_link_input")
 
         if st.button("Book slot"):
             try:
-                cv_path = cv_link or None
                 with engine.begin() as conn:
-                    matricola = st.session_state.get("matricola")
-                    book_slot(conn, event["id"], comp_id, student, slot_choice, cv_path, matricola)
-                st.success(f"Booked {slot_choice} with {pick}. {'CV/link saved.' if cv_link else ''}")
-                st.session_state["book_update"] = st.session_state.get("book_update", 0) + 1
+                    book_slot(conn, event["id"], comp_id, email, slot_choice, cv_link or None, student['matricola'])
+                st.success(f"Booked {slot_choice} with {pick}.")
+                st.rerun()
             except Exception as ex:
                 st.error(f"Errore: {ex}")
-   
+
+    # --- ROUND TABLES ---
     with tab_roundtables:
         st.subheader("Book a Round Table  9 - 11 am")
-
-        student = st.session_state.get("student_name") or st.session_state["email"]
-
-        # Capienza dei tavoli (ID → capienza)
-        CAPACITY = {
-            1: 140,
-            2: 140,
-            3: 73,
-            4: 130,
-            5: 113,
-            6: 68,
-        }
+        CAPACITY = {1: 140, 2: 140, 3: 73, 4: 130, 5: 113, 6: 68}
 
         with engine.begin() as conn:
             roundtables = get_roundtables(conn, event["id"])
-            my_rt_bookings = {b['roundtable_id'] for b in get_student_roundtable_bookings(conn, event["id"], student)}
+            my_rt_bookings = {b['roundtable_id'] for b in get_student_roundtable_bookings(conn, event["id"], email)}
+            current_counts = {rt['id']: conn.execute(text("SELECT COUNT(*) FROM roundtable_booking WHERE roundtable_id=:rt_id"), {"rt_id": rt["id"]}).scalar() for rt in roundtables}
 
-            # Conta prenotazioni per ogni tavolo
-            current_counts = {}
-            for rt in roundtables:
-                q = text("SELECT COUNT(*) FROM roundtable_booking WHERE roundtable_id = :rt_id")
-                current_counts[rt['id']] = conn.execute(q, {"rt_id": rt["id"]}).scalar()
-
-        if not roundtables:
-            st.info("No round tables available for this event.")
+        if my_rt_bookings:
+            st.warning("⚠️ You have already booked a round table.")
         else:
-            # 🔹 Controllo: studente ha già una prenotazione
-            if my_rt_bookings:
-                st.warning("⚠️ You have already booked a round table. You can only join one.")
+            available_roundtables = [rt for rt in roundtables if current_counts[rt['id']] < CAPACITY[rt['id']] // 2]
+            if available_roundtables:
+                rt_choice_str = st.selectbox("Select a round table", [f"{rt['name']} – 📍 {rt['room']} ({current_counts[rt['id']]}/{CAPACITY[rt['id']]})" for rt in available_roundtables])
+                rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
+                if st.button("Book this round table"):
+                    with engine.begin() as conn:
+                        book_roundtable(conn, event["id"], rt_choice['id'], email, student['matricola'])
+                    st.success(f"You booked **{rt_choice['name']}** successfully!")
+                    st.rerun()
             else:
-                # Controlla se tutte hanno raggiunto almeno il 50%
-                phase2 = all(current_counts[rt['id']] >= CAPACITY[rt['id']] // 2 for rt in roundtables)
-
-                # Determina roundtable prenotabili
-                available_roundtables = []
-                for rt in roundtables:
-                    limit = CAPACITY[rt['id']] if phase2 else CAPACITY[rt['id']] // 2
-                    if current_counts[rt['id']] < limit:
-                        available_roundtables.append(rt)
-
-                if not available_roundtables:
-                    st.info("No round tables available for booking at this time.")
-                else:
-                    # Mostra percentuale riempimento
-                    options = [
-                        f"{rt['name']} – 📍 {rt['room']} ({current_counts[rt['id']]}/{CAPACITY[rt['id']]})"
-                        for rt in available_roundtables
-                    ]
-                    rt_choice_str = st.selectbox("Select a round table", options)
-
-                    if rt_choice_str:
-                        rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
-
-                        if st.button("Book this round table"):
-                            try:
-                                with engine.begin() as conn:
-                                    matricola = st.session_state.get("matricola")
-                                    book_roundtable(conn, event["id"], rt_choice['id'], student, matricola)
-                                st.success(f"You booked **{rt_choice['name']}** successfully!")
-                                st.rerun()
-                            except Exception as ex:
-                                st.error(f"Error while booking: {ex}")
+                st.info("No round tables available for booking at this time.")
 
         # --- Mostra prenotazioni correnti ---
         st.subheader("Your Round Table Bookings")
