@@ -111,7 +111,7 @@ if "role" not in st.session_state:
         AUTH_MODE = os.getenv("AUTH_MODE", "prod")
         app_home = "https://ied2025.dii.unitn.it/"  # root app
 
-        # Helper sicuro per leggere role
+        # Leggi role in modo sicuro
         logged_role = st.session_state.get("role")
 
         if AUTH_MODE == "dev":
@@ -125,6 +125,7 @@ if "role" not in st.session_state:
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
                     st.success("Login studente simulato (dev mode)")
+                    st.rerun()
 
             # logout dev
             if st.session_state.get("role") == "student":
@@ -132,40 +133,47 @@ if "role" not in st.session_state:
                     for k in ["role", "email", "student_name", "givenName", "sn", "idada"]:
                         st.session_state.pop(k, None)
                     st.query_params.clear()
+                    st.rerun()
 
         else:
             # --- flusso produzione ---
             if not logged_role:
-                qp = st.query_params  # dict di liste
+                qp = st.query_params  # dizionario di liste
                 given = qp.get("givenName", [None])[0]
                 sn = qp.get("sn", [None])[0]
                 idada = qp.get("idada", [None])[0]
 
                 if (given and given.strip()) or (sn and sn.strip()) or (idada and idada.strip()):
-                    # Login SSO valido
+                    # login con attributi validi
                     st.session_state["role"] = "student"
                     st.session_state["student_name"] = f"{(given or '').strip()} {(sn or '').strip()}".strip() or idada
                     st.session_state["givenName"] = (given or "").strip()
                     st.session_state["sn"] = (sn or "").strip()
                     st.session_state["idada"] = (idada or "").strip()
+
+                    # pulisci query params per evitare loop
                     st.query_params.clear()
-                    st.success(f"Benvenutə, {st.session_state['student_name']}!")
+
+                    st.success(f"Benvenutə, {st.session_state.get('student_name','—')}!")
                 else:
-                    # Nessun attributo valido: mostra link per SSO ma lascia accesso
+                    # nessun attributo: mostra bottone SSO
                     st.markdown(
                         f'<a href="{app_home}mylogin" target="_self">'
                         '<button style="padding:10px 20px; font-size:16px;">Access with UniTN SSO</button>'
                         '</a>',
                         unsafe_allow_html=True
                     )
-
             else:
-                # Se già loggato
+                # già loggato: messaggio e logout
                 st.success(f"Sei autenticato come {st.session_state.get('student_name', '—')}")
                 if st.button("Logout"):
                     for k in ["role", "email", "student_name", "givenName", "sn", "idada"]:
                         st.session_state.pop(k, None)
                     st.query_params.clear()
+                    st.rerun()
+
+        st.stop()  # resta indentato dentro `with tab_student`
+
 
 
 # ------------------- TOPBAR -------------------
