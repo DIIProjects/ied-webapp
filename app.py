@@ -111,6 +111,9 @@ if "role" not in st.session_state:
         AUTH_MODE = os.getenv("AUTH_MODE", "prod")
         app_home = "https://ied2025.dii.unitn.it/"  # root app
 
+        # Helper sicuro per leggere role
+        logged_role = st.session_state.get("role")
+
         if AUTH_MODE == "dev":
             # --- flusso dev ---
             email = st.text_input("Institutional email (@unitn.it)", key="student_email")
@@ -122,29 +125,42 @@ if "role" not in st.session_state:
                     st.session_state["email"] = email
                     st.session_state["student_name"] = email.split("@")[0]
                     st.success("Login studente simulato (dev mode)")
+                    st.rerun()
+
+            # se è loggato in dev, mostra logout
+            if st.session_state.get("role") == "student":
+                if st.button("Logout (dev)"):
+                    # resetta solo le chiavi che usi
+                    for k in ["role", "email", "student_name", "givenName", "sn", "idada"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
+                    st.query_params.clear()
+                    st.rerun()
 
         else:
-        # --- flusso produzione ---
-            if "role" not in st.session_state:  # solo se non loggato
-                query_params = st.query_params
-                given = query_params.get("givenName", [None])[0]
-                sn = query_params.get("sn", [None])[0]
-                idada = query_params.get("idada", [None])[0]
+            # --- flusso produzione ---
+            # se non sei ancora loggato, controlla i query params (una sola volta)
+            if not logged_role:
+                qp = st.query_params  # dict di liste
+                given = qp.get("givenName", [None])[0]
+                sn = qp.get("sn", [None])[0]
+                idada = qp.get("idada", [None])[0]
 
-                if given or sn or idada:
-                    # Login riuscito
+                if (given and given.strip()) or (sn and sn.strip()) or (idada and idada.strip()):
+                    # Attributi validi: fai il login e rimuovi i query params per evitare loop
                     st.session_state["role"] = "student"
-                    st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
-                    st.session_state["givenName"] = given
-                    st.session_state["sn"] = sn
-                    st.session_state["idada"] = idada
+                    st.session_state["student_name"] = f"{(given or '').strip()} {(sn or '').strip()}".strip() or idada
+                    st.session_state["givenName"] = (given or "").strip()
+                    st.session_state["sn"] = (sn or "").strip()
+                    st.session_state["idada"] = (idada or "").strip()
 
-                    # 🔑 Pulisci i query params per evitare loop
+                    # Pulisci i query params (IMPORTANTE: fa sparire l'URL con ?...)
                     st.query_params.clear()
 
                     st.success(f"Benvenutə, {st.session_state['student_name']}!")
+                    # non fare st.rerun() immediato per evitare loop; l'utente vedrà la UI aggiornata
                 else:
-                    # 🔗 Mostra bottone che manda ad Apache / Shibboleth
+                    # Nessun attributo valido: mostra link per avviare SSO
                     st.markdown(
                         f'<a href="{app_home}mylogin" target="_self">'
                         '<button style="padding:10px 20px; font-size:16px;">Access with UniTN SSO</button>'
@@ -152,13 +168,18 @@ if "role" not in st.session_state:
                         unsafe_allow_html=True
                     )
             else:
-                st.success(f"Sei autenticato come {st.session_state['student_name']}")
-
-                # --- Bottone logout ---
+                # Se già loggato mostra messaggio e logout
+                st.success(f"Sei autenticato come {st.session_state.get('student_name', '—')}")
                 if st.button("Logout"):
-                    st.session_state.clear()
+                    # elimina solo le chiavi usate (più sicuro di clear())
+                    for k in ["role", "email", "student_name", "givenName", "sn", "idada"]:
+                        if k in st.session_state:
+                            del st.session_state[k]
                     st.query_params.clear()
                     st.rerun()
+
+        st.stop()  # resta indentato dentro `with tab_student`
+
 
 
 # ------------------- TOPBAR -------------------
