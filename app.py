@@ -20,14 +20,14 @@ seed_demo_users()
 with engine.begin() as conn:
     event = get_active_event(conn)
 
-# Se l'IdP ha già autenticato e Apache ha passato attributi, facciamo il bootstrap studente.
-# La funzione restituisce True SOLO quando imposta effettivamente la sessione per la prima volta.
+# Bootstrap SSO se Apache ha già passato attributi
 if bootstrap_student_login():
     st.experimental_rerun()
 
 # refresh solo dopo login (timer colloqui)
 if "role" in st.session_state:
     st_autorefresh(interval=1000, key="timer_refresh")
+
 
 # ------------------- LOGIN VIEW -------------------
 if "role" not in st.session_state:
@@ -60,9 +60,8 @@ if "role" not in st.session_state:
                     st.error("Email o password non corretti")
 
     # --- Student ---
-    # --- helper interno per leggere gli header della tua sessione Streamlit ---
     def _get_request_headers():
-        # Funziona da Streamlit 1.20+ (API interna, soggetta a cambiamenti)
+        """Legge gli header inviati da Apache con Shibboleth"""
         try:
             from streamlit.runtime.scriptrunner import get_script_run_ctx
             from streamlit.web.server.server import Server
@@ -77,42 +76,9 @@ if "role" not in st.session_state:
         except Exception:
             return {}
 
-    def _post_login_fill_identity():
-        # Leggi nome/cognome dagli header impostati da Apache
-        hdrs = _get_request_headers()
-        print(hdrs)
-        st.write("DEBUG headers:", hdrs)  # utile in fase di test
-        given = hdrs.get("X-User-GivenName") or hdrs.get("givenName")
-        sn    = hdrs.get("X-User-SN")        or hdrs.get("sn")
-        idada = hdrs.get("X-User-IdAda")     or hdrs.get("idada")
-        print(given, sn, idada)
-        if given or sn or idada:
-            st.session_state["role"] = "student"
-            st.session_state["student_name"] = f"{given or ''} {sn or ''}".strip() or idada
-            # Metti anche i campi separati se ti servono:
-            st.session_state["givenName"] = given
-            st.session_state["sn"] = sn
-            st.session_state["idada"] = idada
-            return True
-        return False
-
-    def get_param(params, key):
-        val = params.get(key)
-        if not val:
-            return None
-        if isinstance(val, list):
-            return val[0]
-        return val  # se è stringa
-
-   # --- Student ---
     with tab_student:
         st.write("**Student Login with UniTN SSO**")
-
-        AUTH_MODE = os.getenv("AUTH_MODE", "prod")
-        app_home = "https://ied2025.dii.unitn.it/"  # root app
-
-        # Leggi role in modo sicuro
-        logged_role = st.session_state.get("role")
+        app_home = "https://ied2025.dii.unitn.it/"
 
         if AUTH_MODE == "dev":
             # --- flusso dev ---
@@ -137,43 +103,32 @@ if "role" not in st.session_state:
 
         else:
             # --- flusso produzione ---
-            if not logged_role:
-                qp = st.query_params  # dizionario di liste
-                given = qp.get("givenName", [None])[0]
-                sn = qp.get("sn", [None])[0]
-                idada = qp.get("idada", [None])[0]
+            headers = _get_request_headers()
+            eppn = headers.get("eppn") or headers.get("X-User-Eppn")
 
-                if (given and given.strip()) or (sn and sn.strip()) or (idada and idada.strip()):
-                    # login con attributi validi
-                    st.session_state["role"] = "student"
-                    st.session_state["student_name"] = f"{(given or '').strip()} {(sn or '').strip()}".strip() or idada
-                    st.session_state["givenName"] = (given or "").strip()
-                    st.session_state["sn"] = (sn or "").strip()
-                    st.session_state["idada"] = (idada or "").strip()
-
-                    # pulisci query params per evitare loop
-                    st.query_params.clear()
-
-                    st.success(f"Benvenutə, {st.session_state.get('student_name','—')}!")
-                else:
-                    # nessun attributo: mostra bottone SSO
-                    st.markdown(
-                        f'<a href="{app_home}mylogin" target="_self">'
-                        '<button style="padding:10px 20px; font-size:16px;">Access with UniTN SSO</button>'
-                        '</a>',
-                        unsafe_allow_html=True
-                    )
+            if eppn:
+                st.session_state["role"] = "student"
+                st.session_state["student_name"] = eppn  # nome.cognome@unitn.it
+                st.session_state["email"] = eppn
+                st.success(f"Benvenutə, {st.session_state['student_name']}!")
             else:
-                # già loggato: messaggio e logout
-                st.success(f"Sei autenticato come {st.session_state.get('student_name', '—')}")
+                # Nessun attributo: mostra link per avviare SSO
+                st.markdown(
+                    f'<a href="{app_home}mylogin" target="_self">'
+                    '<button style="padding:10px 20px; font-size:16px;">Access with UniTN SSO</button>'
+                    '</a>',
+                    unsafe_allow_html=True
+                )
+
+            # logout
+            if st.session_state.get("role") == "student":
                 if st.button("Logout"):
                     for k in ["role", "email", "student_name", "givenName", "sn", "idada"]:
                         st.session_state.pop(k, None)
                     st.query_params.clear()
                     st.rerun()
 
-        st.stop()  # resta indentato dentro `with tab_student`
-
+        st.stop()  # blocca l'esecuzione fino al login
 
 
 # ------------------- TOPBAR -------------------
@@ -185,9 +140,9 @@ with col2:
         reset_session()
         st.rerun()
 
-# ------------------- ROUTING -------------------
-role = st.session_state["role"]
 
+# ------------------- ROUTING -------------------
+role = st.session_state.get("role")
 if role == "student":
     render_student(event)
 elif role == "company":
