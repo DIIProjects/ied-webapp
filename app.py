@@ -90,7 +90,6 @@ if st.session_state.get("role") is None:
                         })
                         st.rerun()
                     else:
-                        # Studente non ancora nel DB: crea un record vuoto (matricola non richiesta)
                         create_student_if_not_exists(
                             email=email.lower().strip(),
                             givenName=email.split("@")[0],
@@ -127,10 +126,8 @@ if st.session_state.get("role") is None:
                         else:
                             st.error("Email o password non corretti")
 
-            # ------------------- Registrazione Studenti -------------------
             else:  # Registrazione
                 st.subheader("Student Registration")
-
                 givenName = st.text_input("Nome", key="student_reg_name")
                 sn = st.text_input("Cognome", key="student_reg_surname")
                 email = st.text_input("Email universitaria", key="student_reg_email")
@@ -138,12 +135,10 @@ if st.session_state.get("role") is None:
                 pw = st.text_input("Password", type="password", key="student_reg_pw")
 
                 if st.button("💾 Registrati"):
-                    # Validazione base
                     if not all([givenName.strip(), sn.strip(), email.strip(), matricola.strip(), pw.strip()]):
                         st.error("⚠️ Compila tutti i campi")
                     else:
                         try:
-                            # Creazione studente
                             create_student_if_not_exists(
                                 email=email.lower().strip(),
                                 givenName=givenName.strip(),
@@ -158,31 +153,35 @@ if st.session_state.get("role") is None:
                                 "student_name": f"{givenName.strip()} {sn.strip()}"
                             })
                             st.rerun()
-
                         except ValueError as ve:
-                            # Errori di unicità
                             st.error(f"⚠️ {ve}")
                         except Exception as e:
-                            # Altri errori
                             st.error(f"Errore durante la registrazione: {e}")
-                                                        
 
-# ------------------- TOPBAR -------------------
-col1, col2 = st.columns([3, 1])
-with col1:
-    st.caption(f"Utente: {st.session_state.get('email','ospite')} • Ruolo: {st.session_state.get('role','none')}")
-with col2:
-    if st.button("Logout"):
-        reset_session()
-        st.rerun()
+    # 👇 IMPORTANT: stop here so we don't fall through to routing with role=None
+    st.stop()
 
-# ------------------- ROUTING -------------------
+                                                      
+
+# ------------------- TOPBAR + ROUTING -------------------
 role = st.session_state.get("role")
-if role == "student":
-    render_student(event)
-elif role == "company":
-    render_company(event)
-elif role == "admin":
-    render_admin(event)
-else:
-    st.error("Undefined role. Execute logout and a new login.")
+
+if role in ("student", "company", "admin"):
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        # role is guaranteed valid here, so no 'none'
+        st.caption(f"Utente: {st.session_state.get('email','')} • Ruolo: {role}")
+    with col2:
+        if st.button("Logout"):
+            reset_session()
+            st.rerun()
+
+    if role == "student":
+        render_student(event)
+    elif role == "company":
+        render_company(event)
+    elif role == "admin":
+        render_admin(event)
+
+# Remove the old final `else: st.error("Undefined role...")`
+
