@@ -295,7 +295,33 @@ def save_cv_file(file_uploader, event_id: int, company_id: int, student: str, sl
         f.write(file_uploader.getbuffer())
     return fname
 
+def _neighbor_slots(slot: str, step: int = 15) -> tuple[str, str]:
+    """Return (prev_slot, next_slot) around `slot` with the given step (HH:MM)."""
+    dt = datetime.strptime(slot, "%H:%M")
+    prev_s = (dt - timedelta(minutes=step)).strftime("%H:%M")
+    next_s = (dt + timedelta(minutes=step)).strftime("%H:%M")
+    return prev_s, next_s
+
 def book_slot(conn, event_id, company_id, student, slot, cv, matricola=None):
+    # --- Block same or adjacent slots for this student across ALL companies ---
+    prev_s, next_s = _neighbor_slots(slot, step=15)
+    conflict = conn.execute(
+        text("""
+            SELECT 1 FROM booking
+            WHERE event_id = :e AND student = :s
+              AND (slot = :slot OR slot = :prev_s OR slot = :next_s)
+            LIMIT 1
+        """),
+        {"e": event_id, "s": student, "slot": slot, "prev_s": prev_s, "next_s": next_s}
+    ).first()
+
+    if conflict:
+        raise ValueError(
+            f"You already have a booking at or adjacent to {slot}. "
+            "Please choose a time at least 30 minutes away."
+        )
+
+    # --- Proceed with normal insert ---
     conn.execute(
         text("""
             INSERT INTO booking (event_id, company_id, student, slot, cv, status, matricola)

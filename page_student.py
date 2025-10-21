@@ -2,6 +2,7 @@ import streamlit as st
 from datetime import datetime, timedelta
 from sqlalchemy import text, Table, MetaData, update
 from auth import find_student_user
+from core import _neighbor_slots
 
 from core import (
     engine,
@@ -150,8 +151,17 @@ def render_student(event):
 
         # --- Filter slots ---
         slots = generate_slots()
-        my_booked_times = [datetime.strptime(b["slot"], "%H:%M") for b in myb]
-        available = [s for s in slots if datetime.strptime(s, "%H:%M") not in my_booked_times and s not in booked]
+
+        # Block same and adjacent (±15 min) to any existing booking by the student (any company)
+        blocked = set()
+        for b in myb:
+            blocked.add(b["slot"])
+            prev_s, next_s = _neighbor_slots(b["slot"], step=15)
+            blocked.add(prev_s)
+            blocked.add(next_s)
+
+        available = [s for s in slots if s not in booked and s not in blocked]
+
 
         if not available:
             st.warning("No slots available for this company.")
