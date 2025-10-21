@@ -76,8 +76,8 @@ if st.session_state.get("role") is None:
         if AUTH_MODE == "dev":
             email = st.text_input("Academic email (@unitn.it)", key="student_dev_email")
             if st.button("Login (dev)"):
-                if not email.endswith("@unitn.it"):
-                    st.error("Use a valid @unitn.it mail")
+                if not email.endswith("@unitn.it") or email.endswith("@studenti.unitn.it"):
+                    st.error("Use a valid @unitn.it or @studenti.unitn.it mail")
                 else:
                     with engine.begin() as conn:
                         student = find_student_user(email, conn=conn)
