@@ -80,7 +80,7 @@ def create_student_if_not_exists(email: str, givenName: str, sn: str, matricola:
             {"e": email_clean}
         ).scalar()
         if exists_email:
-            raise ValueError(f"Email '{email_clean}' già registrata")
+            raise ValueError(f"Email '{email_clean}' already registered")
 
         # Controllo unicità matricola
         exists_matricola = conn.execute(
@@ -88,7 +88,7 @@ def create_student_if_not_exists(email: str, givenName: str, sn: str, matricola:
             {"m": matricola_clean}
         ).scalar()
         if exists_matricola:
-            raise ValueError(f"Matricola '{matricola_clean}' già registrata")
+            raise ValueError(f"ID number '{matricola_clean}' already registered")
 
         # Hash password se fornita
         pw_hash = generate_password_hash(password) if password else ''
@@ -104,7 +104,7 @@ def create_student_if_not_exists(email: str, givenName: str, sn: str, matricola:
                 "givenName": givenName.strip(),
                 "sn": sn.strip(),
                 "matricola": matricola_clean,
-                "plenary": plenary_attendance,
+                "plenary": 0,
                 "pw": pw_hash
             }
         )
@@ -242,7 +242,7 @@ ENI_USER_EMAIL = read_secret("ENI_USER_EMAIL", "hr@eni.com")
 ENI_PASS_HASH  = read_secret("ENI_PASS_HASH")
 ENI_PASS       = read_secret("ENI_PASS")
 
-LEO_USER_EMAIL = read_secret("LEO_USER_EMAIL", "leonardo.pasquato@gmail.com")
+LEO_USER_EMAIL = read_secret("LEO_USER_EMAIL", "leo@nardo.com")
 LEO_PASS_HASH  = read_secret("LEO_PASS_HASH")
 LEO_PASS       = read_secret("LEO_PASS")
 

@@ -67,17 +67,17 @@ if st.session_state.get("role") is None:
                     })
                     st.rerun()
                 else:
-                    st.error("Email o password non corretti")
+                    st.error("Wrong email or password")
 
     # ------------------- LOGIN / REGISTRAZIONE STUDENTI -------------------
     with tab_student:
         st.write("**Student Login / Registration**")
 
         if AUTH_MODE == "dev":
-            email = st.text_input("Email universitaria (@unitn.it)", key="student_dev_email")
+            email = st.text_input("Academic email (@unitn.it)", key="student_dev_email")
             if st.button("Login (dev)"):
                 if not email.endswith("@unitn.it"):
-                    st.error("Usa una email valida @unitn.it")
+                    st.error("Use a valid @unitn.it mail")
                 else:
                     with engine.begin() as conn:
                         student = find_student_user(email, conn=conn)
@@ -104,14 +104,14 @@ if st.session_state.get("role") is None:
                         st.rerun()
 
         else:
-            mode = st.radio("Seleziona modalità", ["Login", "Registrati"], key="student_mode")
+            mode = st.radio("Select mode", ["Login", "Registration"], key="student_mode")
 
             if mode == "Login":
-                email = st.text_input("Email universitaria", key="student_login_email")
+                email = st.text_input("Academic email", key="student_login_email")
                 pw = st.text_input("Password", type="password", key="student_login_pw")
                 if st.button("Login", key="btn_student_login"):
                     if not email or not pw:
-                        st.error("Email e password richieste!")
+                        st.error("Email and password required!")
                     else:
                         with engine.begin() as conn:
                             student = find_student_user(email, pw, conn=conn)
@@ -125,19 +125,19 @@ if st.session_state.get("role") is None:
                             st.session_state.pop("plenary_done", None)
                             st.rerun()
                         else:
-                            st.error("Email o password non corretti")
+                            st.error("Wrong email or password")
 
             else:  # Registrazione
                 st.subheader("Student Registration")
-                givenName = st.text_input("Nome", key="student_reg_name")
-                sn = st.text_input("Cognome", key="student_reg_surname")
-                email = st.text_input("Email universitaria", key="student_reg_email")
-                matricola = st.text_input("Matricola", key="student_reg_matricola")
+                givenName = st.text_input("Name", key="student_reg_name")
+                sn = st.text_input("Surname", key="student_reg_surname")
+                email = st.text_input("Academic email", key="student_reg_email")
+                matricola = st.text_input("ID student number (matricola)", key="student_reg_matricola")
                 pw = st.text_input("Password", type="password", key="student_reg_pw")
 
-                if st.button("💾 Registrati"):
+                if st.button("💾 Registrate"):
                     if not all([givenName.strip(), sn.strip(), email.strip(), matricola.strip(), pw.strip()]):
-                        st.error("⚠️ Compila tutti i campi")
+                        st.error("⚠️ Fill all fields!")
                     else:
                         try:
                             create_student_if_not_exists(
@@ -147,7 +147,7 @@ if st.session_state.get("role") is None:
                                 matricola=matricola.strip(),
                                 password=pw.strip()
                             )
-                            st.success("✅ Registrazione completata!")
+                            st.success("✅ Registration done!")
                             st.session_state.update({
                                 "role": "student",
                                 "email": email.lower().strip(),
@@ -158,7 +158,7 @@ if st.session_state.get("role") is None:
                         except ValueError as ve:
                             st.error(f"⚠️ {ve}")
                         except Exception as e:
-                            st.error(f"Errore durante la registrazione: {e}")
+                            st.error(f"Error during registration: {e}")
 
     # 👇 IMPORTANT: stop here so we don't fall through to routing with role=None
     st.stop()

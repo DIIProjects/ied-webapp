@@ -588,7 +588,7 @@ def _find_running_late_notif(conn, event_id, company_id, student, slot_from):
 def upsert_running_late_notification(conn, event_id, company_id, prev_slot, next_student, minutes_late: int):
     """Crea o aggiorna una notifica 'running_late' per il prossimo studente."""
     minutes_late = max(1, int(minutes_late))
-    msg = f"Lo slot precedente ({prev_slot}) sta sforando di {minutes_late} min."
+    msg = f"The previos slot ({prev_slot}) is late by {minutes_late} min."
 
     existing = _find_running_late_notif(conn, event_id, company_id, next_student, prev_slot)
     now_iso = datetime.utcnow().isoformat()

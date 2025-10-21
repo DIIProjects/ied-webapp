@@ -30,7 +30,7 @@ def student_first_access(email: str):
         student = find_student_user(email, conn=conn)
 
     if not student:
-        st.error("Studente non trovato nel database. Contatta l'amministratore.")
+        st.error("Student not found in the database. Please refer to the administration.")
         st.stop()
 
     st.title(f"Welcome, {student['givenName']} {student['sn']} 🎓")
@@ -81,14 +81,14 @@ def render_student(event):
     """Render the Student area."""
     email = st.session_state.get("email")
     if not email:
-        st.error("Email non disponibile. Contatta l'amministratore.")
+        st.error("Email not found. Please refer to the administration")
         st.stop()
 
         # --- Load student from DB first ---
     with engine.begin() as conn:
         student = find_student_user(email, conn=conn)
     if not student:
-        st.error("Studente non trovato nel database. Contatta l'amministratore.")
+        st.error("Student not found in the database. Please refer to the administration.")
         st.stop()
 
     # Primo accesso: mostra sempre fino a quando non è salvato in DB
@@ -106,7 +106,7 @@ def render_student(event):
     student_name = f"{student['givenName']} {student['sn']}"
 
     st.markdown(f"### 👤 {student_name}")
-    st.info(f"✅ Matricola: `{student['matricola']}`")
+    st.info(f"✅ ID student: `{student['matricola']}`")
 
     tab_companies, tab_roundtables = st.tabs(["Company Interview", "Round Tables"])
 
