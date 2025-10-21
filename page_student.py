@@ -20,6 +20,11 @@ from core import (
 )
 from auth import find_student_user
 
+# --- CONFIGURAZIONE COLLOQUI ---
+MAX_INTERVIEWS_PER_STUDENT = 2       # Limite prenotazioni
+LIMIT_ACTIVE_UNTIL = datetime(2025, 11, 11)  # Data fine limite (es. tra qualche giorno)
+
+
 def student_first_access(email: str):
     """Flusso di primo accesso per lo studente."""
     
@@ -170,14 +175,35 @@ def render_student(event):
         slot_choice = st.selectbox("Available slots", available)
         cv_link = st.text_input("Optional link / CV", key="cv_link_input")
 
+        # --- Info limite prenotazioni ---
+        now = datetime.now()
+        limit_active = (
+            MAX_INTERVIEWS_PER_STUDENT is not None and
+            (LIMIT_ACTIVE_UNTIL is None or now <= LIMIT_ACTIVE_UNTIL)
+        )
+
+        if limit_active:
+            st.info(
+                f"⚙️ Each student can book up to {MAX_INTERVIEWS_PER_STUDENT} interviews "
+            )
         if st.button("Book slot"):
-            try:
-                with engine.begin() as conn:
-                    book_slot(conn, event["id"], comp_id, email, slot_choice, cv_link or None, student['matricola'])
-                st.success(f"Booked {slot_choice} with {pick}.")
-                st.rerun()
-            except Exception as ex:
-                st.error(f"Errore: {ex}")
+            # --- Controlla limite colloqui ---
+            now = datetime.now()
+            limit_active = (
+                MAX_INTERVIEWS_PER_STUDENT is not None and
+                (LIMIT_ACTIVE_UNTIL is None or now <= LIMIT_ACTIVE_UNTIL)
+            )
+
+            if limit_active and len(myb) >= MAX_INTERVIEWS_PER_STUDENT:
+                st.error(f"⚠️ You already booked the maximum number of {MAX_INTERVIEWS_PER_STUDENT} interviews.")
+            else:
+                try:
+                    with engine.begin() as conn:
+                        book_slot(conn, event["id"], comp_id, email, slot_choice, cv_link or None, student['matricola'])
+                    st.success(f"✅ Booked {slot_choice} with {pick}.")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Errore: {ex}")
 
     # --- ROUND TABLES ---
     with tab_roundtables:
