@@ -133,8 +133,41 @@ def render_admin(event):
                 })
 
             if df_rows:
+                st.markdown(f"#### Prenotazioni per {c['name']}")
+                for b in sorted(df_rows, key=lambda x: x["Orario"]):
+                    cols = st.columns([4, 3, 2, 1])
+                    with cols[0]:
+                        st.write(f"👤 {b['Nome']} {b['Cognome']} ({b['Matricola'] or '—'})")
+                    with cols[1]:
+                        st.write(f"📧 {b['Email']}")
+                    with cols[2]:
+                        st.write(f"🕒 {b['Orario']}")
+                    with cols[3]:
+                        if st.button("❌ Cancella", key=f"del_{c['id']}_{b['Email']}_{b['Orario']}"):
+                            try:
+                                with engine.begin() as conn:
+                                    conn.execute(
+                                        text("""
+                                            DELETE FROM booking 
+                                            WHERE event_id = :e 
+                                            AND company_id = :c 
+                                            AND slot = :slot
+                                            AND LOWER(student) LIKE :email_pattern
+                                        """),
+                                        {
+                                            "e": event["id"],
+                                            "c": c["id"],
+                                            "slot": b["Orario"],
+                                            "email_pattern": f"%{b['Email'].lower()}%",
+                                        },
+                                    )
+                                st.success(f"🗑️ Prenotazione rimossa per {b['Email']} alle {b['Orario']}")
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"Errore durante la cancellazione: {ex}")
+
+                # Per esportazione CSV
                 df_show = pd.DataFrame(df_rows).sort_values("Orario")
-                st.dataframe(df_show, use_container_width=True, hide_index=True)
                 df_show_all.append(df_show)
 
             # --- Form per aggiungere prenotazioni manuali ---

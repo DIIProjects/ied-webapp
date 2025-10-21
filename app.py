@@ -103,7 +103,7 @@ if st.session_state.get("role") is None:
                         })
                         st.rerun()
 
-        else:
+        else:  # modalità prod
             mode = st.radio("Select mode", ["Login", "Registration"], key="student_mode")
 
             if mode == "Login":
@@ -112,6 +112,8 @@ if st.session_state.get("role") is None:
                 if st.button("Login", key="btn_student_login"):
                     if not email or not pw:
                         st.error("Email and password required!")
+                    elif not (email.endswith("@unitn.it") or email.endswith("@studenti.unitn.it")):
+                        st.error("⚠️ Use a valid @unitn.it or @studenti.unitn.it email")
                     else:
                         with engine.begin() as conn:
                             student = find_student_user(email, pw, conn=conn)
@@ -138,6 +140,8 @@ if st.session_state.get("role") is None:
                 if st.button("💾 Registrate"):
                     if not all([givenName.strip(), sn.strip(), email.strip(), matricola.strip(), pw.strip()]):
                         st.error("⚠️ Fill all fields!")
+                    elif not (email.endswith("@unitn.it") or email.endswith("@studenti.unitn.it")):
+                        st.error("⚠️ Use a valid @unitn.it or @studenti.unitn.it email")
                     else:
                         try:
                             create_student_if_not_exists(
@@ -159,6 +163,7 @@ if st.session_state.get("role") is None:
                             st.error(f"⚠️ {ve}")
                         except Exception as e:
                             st.error(f"Error during registration: {e}")
+
 
     # 👇 IMPORTANT: stop here so we don't fall through to routing with role=None
     st.stop()

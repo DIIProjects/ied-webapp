@@ -256,13 +256,23 @@ def toggle_checkin(conn, event_id, student):
         return True
 
 # Booking
-def generate_slots(start="09:00", end="17:00", step=15):
+def generate_slots(step=15):
+    """
+    Genera slot di colloqui a scaglioni di 15 minuti
+    negli intervalli:
+      - 11:30 → 13:00
+      - 14:30 → 16:30
+    """
     slots = []
-    start_dt = datetime.strptime(start, "%H:%M")
-    end_dt = datetime.strptime(end, "%H:%M")
-    while start_dt < end_dt:
-        slots.append(start_dt.strftime("%H:%M"))
-        start_dt += timedelta(minutes=step)
+    ranges = [("11:30", "13:00"), ("14:30", "16:30")]
+
+    for start, end in ranges:
+        start_dt = datetime.strptime(start, "%H:%M")
+        end_dt = datetime.strptime(end, "%H:%M")
+        while start_dt < end_dt:
+            slots.append(start_dt.strftime("%H:%M"))
+            start_dt += timedelta(minutes=step)
+
     return slots
 
 def get_bookings(conn, event_id, company_id):

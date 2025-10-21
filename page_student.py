@@ -37,8 +37,8 @@ def student_first_access(email: str):
 
     # --- Plenary session ---
     plenary_attend = st.checkbox(
-        "☑️ I will attend the plenary session "
-        "(attendance is mandatory for type F credit)",
+        "☑️ I understand that the plenary session "
+        "attendance is mandatory for type F credit",
         value=bool(student.get("plenary_attendance"))
     )
 
