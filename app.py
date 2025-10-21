@@ -122,6 +122,7 @@ if st.session_state.get("role") is None:
                                 "student_name": f"{student['givenName']} {student['sn']}",
                                 "student_id": student["id"]
                             })
+                            st.session_state.pop("plenary_done", None)
                             st.rerun()
                         else:
                             st.error("Email o password non corretti")
@@ -152,6 +153,7 @@ if st.session_state.get("role") is None:
                                 "email": email.lower().strip(),
                                 "student_name": f"{givenName.strip()} {sn.strip()}"
                             })
+                            st.session_state.pop("plenary_done", None)
                             st.rerun()
                         except ValueError as ve:
                             st.error(f"⚠️ {ve}")
@@ -182,6 +184,3 @@ if role in ("student", "company", "admin"):
         render_company(event)
     elif role == "admin":
         render_admin(event)
-
-# Remove the old final `else: st.error("Undefined role...")`
-

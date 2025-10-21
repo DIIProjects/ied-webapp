@@ -83,10 +83,20 @@ def render_student(event):
         st.error("Email non disponibile. Contatta l'amministratore.")
         st.stop()
 
-    # Primo accesso: plenaria + privacy
-    if "plenary_done" not in st.session_state:
+        # --- Load student from DB first ---
+    with engine.begin() as conn:
+        student = find_student_user(email, conn=conn)
+    if not student:
+        st.error("Studente non trovato nel database. Contatta l'amministratore.")
+        st.stop()
+
+    # Primo accesso: mostra sempre fino a quando non è salvato in DB
+    if not bool(student.get("plenary_attendance")):
+        # evita che un vecchio flag di sessione nasconda la schermata
+        st.session_state.pop("plenary_done", None)
         student_first_access(email)
         st.stop()
+
 
     # --- Mostra info studente ---
     with engine.begin() as conn:
