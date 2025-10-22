@@ -184,15 +184,22 @@ def render_student(event):
                 f"⚙️ Each student can book up to {MAX_INTERVIEWS_PER_STUDENT} interviews "
             )
         if st.button("Book slot"):
-            # --- Controlla limite colloqui ---
             now = datetime.now()
             limit_active = (
                 MAX_INTERVIEWS_PER_STUDENT is not None and
                 (LIMIT_ACTIVE_UNTIL is None or now <= LIMIT_ACTIVE_UNTIL)
             )
 
-            if limit_active and len(myb) >= MAX_INTERVIEWS_PER_STUDENT:
+            # --- Controlla se ha già un colloquio con la stessa azienda ---
+            already_with_company = any(b["company"] == pick for b in myb)
+            if already_with_company:
+                st.error(f"⚠️ You have already booked an interview with {pick}. Each student can only book one per company.")
+            
+            # --- Controlla limite colloqui totale ---
+            elif limit_active and len(myb) >= MAX_INTERVIEWS_PER_STUDENT:
                 st.error(f"⚠️ You already booked the maximum number of {MAX_INTERVIEWS_PER_STUDENT} interviews.")
+            
+            # --- Tutto ok: procede alla prenotazione ---
             else:
                 try:
                     with engine.begin() as conn:
