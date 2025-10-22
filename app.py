@@ -46,28 +46,7 @@ if st.session_state.get("role") is None:
 # ------------------- LOGIN VIEW -------------------
 if st.session_state.get("role") is None:
     st.header("Industrial Engineering Day - Login page")
-    tab_company, tab_student = st.tabs(["Company", "Student"])
-
-    # --- Company/Admin ---
-    with tab_company:
-        email = st.text_input("Email", key="company_email")
-        pw = st.text_input("Password", type="password", key="company_pass")
-        if st.button("Entra", key="btn_company"):
-            if admin_ok(email, pw):
-                st.session_state.update({"role": "admin", "email": "admin@local"})
-                st.rerun()
-            else:
-                with engine.begin() as conn:
-                    cu = find_company_user(conn, email, pw)
-                if cu:
-                    st.session_state.update({
-                        "role": "company",
-                        "email": cu["email"],
-                        "company_id": cu["company_id"]
-                    })
-                    st.rerun()
-                else:
-                    st.error("Wrong email or password")
+    tab_student, tab_company  = st.tabs(["Student", "Company"])
 
     # ------------------- LOGIN / REGISTRAZIONE STUDENTI -------------------
     with tab_student:
@@ -164,6 +143,27 @@ if st.session_state.get("role") is None:
                         except Exception as e:
                             st.error(f"Error during registration: {e}")
 
+
+    # --- Company/Admin ---
+    with tab_company:
+        email = st.text_input("Email", key="company_email")
+        pw = st.text_input("Password", type="password", key="company_pass")
+        if st.button("Entra", key="btn_company"):
+            if admin_ok(email, pw):
+                st.session_state.update({"role": "admin", "email": "admin@local"})
+                st.rerun()
+            else:
+                with engine.begin() as conn:
+                    cu = find_company_user(conn, email, pw)
+                if cu:
+                    st.session_state.update({
+                        "role": "company",
+                        "email": cu["email"],
+                        "company_id": cu["company_id"]
+                    })
+                    st.rerun()
+                else:
+                    st.error("Wrong email or password")
 
     # 👇 IMPORTANT: stop here so we don't fall through to routing with role=None
     st.stop()

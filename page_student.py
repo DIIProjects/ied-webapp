@@ -42,7 +42,7 @@ def student_first_access(email: str):
 
     # --- Plenary session ---
     plenary_attend = st.checkbox(
-        "☑️ I will partecipate to the plenary session"
+        "I will partecipate to the plenary session"
         "(attendance is mandatory for type F credit)",
         value=bool(student.get("plenary_attendance"))
     )
@@ -53,9 +53,9 @@ def student_first_access(email: str):
     Your personal data will be processed by the University of Trento in accordance with the Student Privacy Notice, already provided and available on the institutional website at the page “Privacy and Personal Data Protection” (https://www.unitn.it).
     Specifically – and in addition to what is already stated in the Student Privacy Notice – within the framework of the event Industrial Engineering Day 2025, the following personal data: personal details, email address, and, for students who have uploaded it, their CV, will be processed for the purposes referred to under letter (w) of paragraph 3 of the aforementioned notice and shared with the participating companies you have selected.
     """)
-    agree_info = st.checkbox("☑️ I have read the Information on the processing of personal data.")
+    agree_info = st.checkbox("I have read the Information on the processing of personal data.")
     agree_share = st.checkbox(
-        "☑️ I agree to share my personal data with the participating companies."
+        "I agree to share my personal data with the participating companies."
     )
 
     if st.button("💾 Save and continue"):
@@ -170,7 +170,6 @@ def render_student(event):
 
         available = [s for s in slots if s not in booked and s not in blocked]
 
-
         if not available:
             st.warning("No slots available for this company.")
             st.stop()
@@ -189,31 +188,64 @@ def render_student(event):
             st.info(
                 f"⚙️ Each student can book up to {MAX_INTERVIEWS_PER_STUDENT} interviews "
             )
-        if st.button("Book slot"):
-            now = datetime.now()
-            limit_active = (
-                MAX_INTERVIEWS_PER_STUDENT is not None and
-                (LIMIT_ACTIVE_UNTIL is None or now <= LIMIT_ACTIVE_UNTIL)
-            )
 
-            # --- Controlla se ha già un colloquio con la stessa azienda ---
-            already_with_company = any(b["company"] == pick for b in myb)
-            if already_with_company:
-                st.error(f"⚠️ You have already booked an interview with {pick}. Each student can only book one per company.")
-            
-            # --- Controlla limite colloqui totale ---
-            elif limit_active and len(myb) >= MAX_INTERVIEWS_PER_STUDENT:
-                st.error(f"⚠️ You already booked the maximum number of {MAX_INTERVIEWS_PER_STUDENT} interviews.")
-            
-            # --- Tutto ok: procede alla prenotazione ---
-            else:
-                try:
-                    with engine.begin() as conn:
-                        book_slot(conn, event["id"], comp_id, email, slot_choice, cv_link or None, student['matricola'])
-                    st.success(f"✅ Booked {slot_choice} with {pick}.")
+        # --- Bottone di prenotazione con conferma ---
+        if st.button("📅 Book slot"):
+            # Salvo i dati della prenotazione in sessione per conferma
+            st.session_state["pending_booking"] = {
+                "company_name": pick,
+                "company_id": comp_id,
+                "slot": slot_choice,
+                "cv_link": cv_link or None,
+                "email": email,
+                "matricola": student["matricola"]
+            }
+            st.rerun()
+
+        # --- Se esiste una prenotazione in attesa, mostra richiesta di conferma ---
+        if "pending_booking" in st.session_state:
+            pending = st.session_state["pending_booking"]
+            st.warning(
+                f"⚠️ Do you really want to book an interview with **{pending['company_name']}** "
+                f"at **{pending['slot']}**?"
+            )
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Confirm booking"):
+                    try:
+                        with engine.begin() as conn:
+                            # Controlla duplicati e limiti
+                            myb = get_student_bookings(conn, event["id"], pending["email"])
+                            already_with_company = any(b["company"] == pending["company_name"] for b in myb)
+                            if already_with_company:
+                                st.error(f"⚠️ You have already booked with {pending['company_name']}.")
+                            elif limit_active and len(myb) >= MAX_INTERVIEWS_PER_STUDENT:
+                                st.error(f"⚠️ You already booked {MAX_INTERVIEWS_PER_STUDENT} interviews.")
+                            else:
+                                book_slot(
+                                    conn,
+                                    event["id"],
+                                    pending["company_id"],
+                                    pending["email"],
+                                    pending["slot"],
+                                    pending["cv_link"],
+                                    pending["matricola"]
+                                )
+                                st.success(
+                                    f"✅ Booking confirmed with {pending['company_name']} at {pending['slot']}!"
+                                )
+                        del st.session_state["pending_booking"]
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"❌ Error during booking: {ex}")
+                        del st.session_state["pending_booking"]
+                        st.rerun()
+            with col2:
+                if st.button("❌ Cancel"):
+                    del st.session_state["pending_booking"]
+                    st.info("Booking cancelled.")
                     st.rerun()
-                except Exception as ex:
-                    st.error(f"Errore: {ex}")
+
 
     # --- ROUND TABLES ---
     with tab_roundtables:
