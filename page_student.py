@@ -59,8 +59,13 @@ def student_first_access(email: str):
     )
 
     if st.button("💾 Save and continue"):
-        if not agree_info or not agree_share:
+        # --- Verifica che abbia selezionato la plenary session ---
+        if not plenary_attend:
+            st.error("⚠️ You must confirm participation to the plenary session to continue.")
+        
+        elif not agree_info or not agree_share:
             st.error("⚠️ You must accept both privacy statements to continue.")
+        
         else:
             # --- Aggiorna database ---
             metadata = MetaData()
@@ -78,6 +83,7 @@ def student_first_access(email: str):
             st.success("✅ Your privacy agreements have been saved!")
             st.session_state["plenary_done"] = True
             st.rerun()
+
 
 def render_student(event):
     """Render the Student area."""

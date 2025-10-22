@@ -23,39 +23,47 @@ def render_admin(event):
     # Plenary Attendance
     # -----------------------------
     with tab_plenaria:
-        st.subheader("Presenza Plenaria")
+        st.subheader("Presenza Plenaria (conferma effettiva lato Admin)")
+        
         with engine.begin() as conn:
+            # Recupera gli studenti con eventuale stato di conferma
             students = list(conn.execute(
                 text("""
-                    SELECT id, givenName, sn, email, matricola, plenary_attendance
+                    SELECT id, givenName, sn, email, matricola, plenary_confirmed
                     FROM student
                     ORDER BY givenName COLLATE NOCASE
                 """)
             ).mappings())
 
         if students:
-            st.write("**Studente – Matricola – Presenza**")
+            st.write("**Studente – Matricola – Presenza effettiva alla plenaria**")
+            
             with st.form("plenary_form"):
                 presence_dict = {}
                 for s in students:
                     label = f"{s['givenName']} {s['sn']} ({s['matricola'] or '—'})"
+                    
+                    # Qui leggo dal DB, se nulla o 0 -> checkbox non selezionata
                     presence_dict[s["id"]] = st.checkbox(
                         label,
-                        value=bool(s["plenary_attendance"]),
+                        value=bool(s.get("plenary_confirmed", 0)),
                         key=f"plenary_{s['id']}"
                     )
-                submitted = st.form_submit_button("Salva presenze")
+                
+                submitted = st.form_submit_button("💾 Salva presenze")
+                
                 if submitted:
                     with engine.begin() as conn:
                         for sid, present in presence_dict.items():
                             conn.execute(
-                                text("UPDATE student SET plenary_attendance=:p WHERE id=:id"),
+                                text("UPDATE student SET plenary_confirmed=:p WHERE id=:id"),
                                 {"p": int(present), "id": sid}
                             )
-                    st.success("Presenze aggiornate ✅")
+                    st.success("✅ Presenze aggiornate (solo studenti selezionati).")
 
+            # Esportazione CSV delle presenze confermate
             df_csv = pd.DataFrame(students)
-            df_csv["Plenary Attendance"] = df_csv["plenary_attendance"]
+            df_csv["Plenary Attendance"] = df_csv.get("plenary_confirmed", 0)
             df_csv = df_csv[["givenName", "sn", "matricola", "email", "Plenary Attendance"]]
             st.download_button(
                 "📥 Esporta presenze plenaria",
