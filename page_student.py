@@ -41,9 +41,9 @@ def student_first_access(email: str):
     st.title(f"Welcome, {student['givenName']} {student['sn']} 🎓")
 
     # --- Plenary session ---
+    st.subheader("NOTE: to earn the type F credit, you must attend the plenary session")
     plenary_attend = st.checkbox(
-        "I will partecipate to the plenary session"
-        "(attendance is mandatory for type F credit)",
+        "I will partecipate to the plenary session",
         value=bool(student.get("plenary_attendance"))
     )
 
@@ -120,8 +120,14 @@ def render_student(event):
 
     # --- COMPANY INTERVIEWS ---
     with tab_companies:
+        st.subheader("Rules to earn the type F credit:")
+        st.markdown("""
+        - You must attend the plenary sessions.  
+        - You must participate in a round table (bookings available in the next tab).  
+        - You must have **at least two interview** with a company.  
+        """)
         st.subheader("My Bookings & Notifications")
-
+        
         with engine.begin() as conn:
             # Notifiche non lette
             notifs = get_unread_notifications(conn, event["id"], email)
@@ -146,7 +152,7 @@ def render_student(event):
             st.info("No Bookings")
 
         # --- New Booking ---
-        st.subheader("Book an interview")
+        st.subheader("Book an interview - NOTE: bookings cannot be deleted")
         with engine.begin() as conn:
             comps = get_companies(conn, event["id"])
 
@@ -249,7 +255,7 @@ def render_student(event):
 
     # --- ROUND TABLES ---
     with tab_roundtables:
-        st.subheader("Book a Round Table  9 - 11 am")
+        st.subheader("Book a Round Table  9 - 11 am -- The round table booking cannot be deleted")
         CAPACITY = {1: 140, 2: 140, 3: 73, 4: 130, 5: 113, 6: 68}
 
         with engine.begin() as conn:
