@@ -42,16 +42,16 @@ def student_first_access(email: str):
 
     # --- Plenary session ---
     plenary_attend = st.checkbox(
-        "☑️ I understand that the plenary session "
-        "attendance is mandatory for type F credit",
+        "☑️ I will partecipate to the plenary session"
+        "(attendance is mandatory for type F credit)",
         value=bool(student.get("plenary_attendance"))
     )
 
     # --- Privacy agreement ---
     st.markdown("""
     #### Privacy Notice
-    Your personal data will be processed by the University of Trento in accordance with the Student Privacy Notice. 
-    By continuing, you agree to the processing and sharing of your data with participating companies.
+    Your personal data will be processed by the University of Trento in accordance with the Student Privacy Notice, already provided and available on the institutional website at the page “Privacy and Personal Data Protection” (https://www.unitn.it).
+    Specifically – and in addition to what is already stated in the Student Privacy Notice – within the framework of the event Industrial Engineering Day 2025, the following personal data: personal details, email address, and, for students who have uploaded it, their CV, will be processed for the purposes referred to under letter (w) of paragraph 3 of the aforementioned notice and shared with the participating companies you have selected.
     """)
     agree_info = st.checkbox("☑️ I have read the Information on the processing of personal data.")
     agree_share = st.checkbox(
@@ -59,9 +59,7 @@ def student_first_access(email: str):
     )
 
     if st.button("💾 Save and continue"):
-        if not plenary_attend:
-            st.error("⚠️ You must confirm attendance to the plenary session.")
-        elif not agree_info or not agree_share:
+        if not agree_info or not agree_share:
             st.error("⚠️ You must accept both privacy statements to continue.")
         else:
             # --- Aggiorna database ---
@@ -71,16 +69,15 @@ def student_first_access(email: str):
             stmt = (
                 update(student_table)
                 .where(student_table.c.email == email)
-                .values(plenary_attendance=1)
+                .values(plenary_attendance=int(plenary_attend))  # salva 1 se True, 0 se False
             )
             
             with engine.begin() as conn:
                 conn.execute(stmt)
             
-            st.success("✅ Your attendance and privacy agreements have been saved!")
+            st.success("✅ Your privacy agreements have been saved!")
             st.session_state["plenary_done"] = True
             st.rerun()
-
 
 def render_student(event):
     """Render the Student area."""
@@ -97,8 +94,8 @@ def render_student(event):
         st.stop()
 
     # Primo accesso: mostra sempre fino a quando non è salvato in DB
-    if not bool(student.get("plenary_attendance")):
-        # evita che un vecchio flag di sessione nasconda la schermata
+    if student.get("plenary_attendance") is None:
+        # Mostra solo se non ha ancora espresso alcuna scelta
         st.session_state.pop("plenary_done", None)
         student_first_access(email)
         st.stop()

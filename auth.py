@@ -64,7 +64,7 @@ def find_student_user(email, password=None, conn=None):
 
     return res
 
-def create_student_if_not_exists(email: str, givenName: str, sn: str, matricola: str, password: str = None, plenary_attendance: int = 0):
+def create_student_if_not_exists(email: str, givenName: str, sn: str, matricola: str, password: str = None):
     """
     Inserisce lo studente nel DB solo se non esiste già.
     Controlla unicità su email e matricola.
@@ -104,7 +104,7 @@ def create_student_if_not_exists(email: str, givenName: str, sn: str, matricola:
                 "givenName": givenName.strip(),
                 "sn": sn.strip(),
                 "matricola": matricola_clean,
-                "plenary": 0,
+                "plenary": None,
                 "pw": pw_hash
             }
         )

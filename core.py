@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS student (
     sn TEXT NOT NULL,
     matricola TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
-    plenary_attendance INTEGER DEFAULT 0
+    plenary_attendance INTEGER
 );
 CREATE TABLE IF NOT EXISTS student_matricola (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
