@@ -129,6 +129,7 @@ def render_admin(event):
                 email = match.group(1).lower() if match else (b["student"] or "").lower()
                 student_data = students_map.get(email, {})
                 df_rows.append({
+                    "Azienda": c["name"],
                     "Nome": student_data.get("givenName", ""),
                     "Cognome": student_data.get("sn", ""),
                     "Matricola": student_data.get("matricola", ""),
@@ -277,15 +278,20 @@ def render_admin(event):
                                     text("UPDATE roundtable_booking SET attended=:a WHERE student=:email AND roundtable_id=:rt_id"),
                                     {"a": int(present), "email": b["email"], "rt_id": rt["id"]}
                                 )
-                    df_all.extend(bookings)
+                    for b in bookings:
+                        row = dict(b)  # ✅ converte RowMapping in dict
+                        row["RoundTable"] = rt["name"]
+                        row["Room"] = rt["room"]
+                        df_all.append(row)
 
         if df_all:
             df_csv = pd.DataFrame(df_all)
             df_csv = df_csv.rename(columns={"attended": "Round Table Attendance"})
-            df_csv = df_csv[["givenName", "sn", "matricola", "email", "Round Table Attendance"]]
+            df_csv = df_csv[["RoundTable", "Room", "givenName", "sn", "matricola", "email", "Round Table Attendance"]]
             st.download_button(
                 "📥 Esporta presenze Round Tables",
                 data=df_csv.to_csv(index=False),
                 file_name="presenze_roundtables.csv",
                 mime="text/csv"
             )
+

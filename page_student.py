@@ -3,6 +3,9 @@ from datetime import datetime, timedelta
 from sqlalchemy import text, Table, MetaData, update
 from auth import find_student_user
 from core import _neighbor_slots
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 from core import (
     engine,
@@ -84,6 +87,71 @@ def student_first_access(email: str):
             st.session_state["plenary_done"] = True
             st.rerun()
 
+def send_confirmation_email(student, event):
+    """Invia una mail di riepilogo delle prenotazioni allo studente."""
+    email = student["email"]
+    student_name = f"{student['givenName']} {student['sn']}"
+
+    with engine.begin() as conn:
+        # --- Colloqui aziendali ---
+        interviews = get_student_bookings(conn, event["id"], email)
+
+        # --- Roundtable bookings ---
+        rt_bookings = get_student_roundtable_bookings(conn, event["id"], email)
+
+        # Recupera tutti i roundtable disponibili per questo evento
+        result = conn.execute(
+            text("SELECT id, name FROM roundtable WHERE event_id = :eid"),
+            {"eid": event["id"]}
+        )
+        all_roundtables = {r.id: r.name for r in result}
+
+    # --- Costruisci testo email ---
+    interviews_text = "\n".join(
+        f"- {b['company']} at {b['slot']}" for b in interviews
+    ) if interviews else "None"
+
+    roundtables_text = "\n".join(
+        f"- {all_roundtables.get(b['roundtable_id'], f'Roundtable {b['roundtable_id']}')}"
+        for b in rt_bookings
+    ) if rt_bookings else "None"
+
+    body = f"""
+    Dear {student_name},
+
+    Here is a summary of your current bookings for Industrial Engineering Day 2025:
+
+    🏛️ Plenary session: confirmed
+
+    🏢 Company interviews:
+    {interviews_text}
+
+    💬 Round tables:
+    {roundtables_text}
+
+    Please make sure to attend all booked sessions.
+    Thank you for participating!
+
+    Best regards,
+    Industrial Engineering Day Team
+    """
+
+    # --- Configurazione email ---
+    sender = "noreply@unitn.it"
+    msg = MIMEMultipart()
+    msg["From"] = sender
+    msg["To"] = email
+    msg["Subject"] = "Your Industrial Engineering Day 2025 Bookings"
+    msg.attach(MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP("smtp.unitn.it", 587) as server:
+            server.starttls()
+            # server.login("user", "password")  # se serve
+            server.send_message(msg)
+    except Exception as e:
+        st.error(f"❌ Error sending email: {e}")
+
 
 def render_student(event):
     """Render the Student area."""
@@ -122,7 +190,7 @@ def render_student(event):
     with tab_companies:
         st.subheader("Rules to earn the type F credit:")
         st.markdown("""
-        - You must attend the plenary sessions.  
+        - You must attend the plenary session.  
         - You must participate in a round table (bookings available in the next tab).  
         - You must have **at least two interview** with a company.  
         """)
@@ -270,11 +338,48 @@ def render_student(event):
             if available_roundtables:
                 rt_choice_str = st.selectbox("Select a round table", [f"{rt['name']} – 📍 {rt['room']} ({current_counts[rt['id']]}/{CAPACITY[rt['id']]})" for rt in available_roundtables])
                 rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
-                if st.button("Book this round table"):
-                    with engine.begin() as conn:
-                        book_roundtable(conn, event["id"], rt_choice['id'], email, student['matricola'])
-                    st.success(f"You booked **{rt_choice['name']}** successfully!")
+                if st.button("📅 Book this round table"):
+                    # Salvo i dati in sessione per conferma
+                    st.session_state["pending_rt_booking"] = {
+                        "roundtable_id": rt_choice["id"],
+                        "roundtable_name": rt_choice["name"],
+                        "room": rt_choice["room"],
+                        "email": email,
+                        "matricola": student["matricola"]
+                    }
                     st.rerun()
+
+                # --- Conferma prenotazione round table ---
+                if "pending_rt_booking" in st.session_state:
+                    pending_rt = st.session_state["pending_rt_booking"]
+                    st.warning(
+                        f"⚠️ Do you really want to book the round table **{pending_rt['roundtable_name']}** "
+                        f"in room **{pending_rt['room']}**?"
+                    )
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Confirm round table booking"):
+                            try:
+                                with engine.begin() as conn:
+                                    # Ricontrolla che non abbia già prenotato
+                                    already = get_student_roundtable_bookings(conn, event["id"], pending_rt["email"])
+                                    if already:
+                                        st.error("⚠️ You have already booked a round table.")
+                                    else:
+                                        book_roundtable(conn, event["id"], pending_rt["roundtable_id"], pending_rt["email"], pending_rt["matricola"])
+                                        st.success(f"✅ Round table **{pending_rt['roundtable_name']}** booked successfully!")
+                                del st.session_state["pending_rt_booking"]
+                                st.rerun()
+                            except Exception as ex:
+                                st.error(f"❌ Error during booking: {ex}")
+                                del st.session_state["pending_rt_booking"]
+                                st.rerun()
+                    with col2:
+                        if st.button("❌ Cancel"):
+                            del st.session_state["pending_rt_booking"]
+                            st.info("Round table booking cancelled.")
+                            st.rerun()
+
             else:
                 st.info("No round tables available for booking at this time.")
 
