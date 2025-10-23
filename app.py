@@ -115,7 +115,9 @@ if st.session_state.get("role") is None:
                 email = st.text_input("Academic email", key="student_reg_email")
                 matricola = st.text_input("ID student number (matricola)", key="student_reg_matricola")
                 pw = st.text_input("Password", type="password", key="student_reg_pw")
-
+                st.markdown(
+                    "⚠️ **PLEASE NOTE:** you will not be able to change your password, so please make sure you remember it."
+                )
                 if st.button("💾 Registrate"):
                     if not all([givenName.strip(), sn.strip(), email.strip(), matricola.strip(), pw.strip()]):
                         st.error("⚠️ Fill all fields!")
