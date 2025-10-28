@@ -324,22 +324,54 @@ def render_student(event):
     # --- ROUND TABLES ---
     with tab_roundtables:
         st.subheader("Book a Round Table  9 - 11 am -- The round table booking cannot be deleted")
-        CAPACITY = {1: 140, 2: 140, 3: 73, 4: 130, 5: 113, 6: 68}
+
+        # Capacità definite per nome (non per ID)
+        CAPACITY_BY_NAME = {
+            "Round Table 1": 140,
+            "Round Table 2": 140,
+            "Round Table 3": 73,
+            "Round Table 4": 130,
+            "Round Table 5": 113,
+            "Round Table 6": 68,
+        }
 
         with engine.begin() as conn:
             roundtables = get_roundtables(conn, event["id"])
-            my_rt_bookings = {b['roundtable_id'] for b in get_student_roundtable_bookings(conn, event["id"], email)}
-            current_counts = {rt['id']: conn.execute(text("SELECT COUNT(*) FROM roundtable_booking WHERE roundtable_id=:rt_id"), {"rt_id": rt["id"]}).scalar() for rt in roundtables}
+            my_rt_bookings = {
+                b['roundtable_id'] for b in get_student_roundtable_bookings(conn, event["id"], email)
+            }
+            current_counts = {
+                rt['id']: conn.execute(
+                    text("SELECT COUNT(*) FROM roundtable_booking WHERE roundtable_id=:rt_id"),
+                    {"rt_id": rt["id"]}
+                ).scalar()
+                for rt in roundtables
+            }
 
         if my_rt_bookings:
             st.warning("⚠️ You have already booked a round table.")
         else:
-            available_roundtables = [rt for rt in roundtables if current_counts[rt['id']] < CAPACITY[rt['id']]]
+            available_roundtables = [
+                rt for rt in roundtables
+                if current_counts[rt['id']] < CAPACITY_BY_NAME.get(rt['name'], 100)
+            ]
+
             if available_roundtables:
-                rt_choice_str = st.selectbox("Select a round table", [f"{rt['name']} – 📍 {rt['room']} ({current_counts[rt['id']]}/{CAPACITY[rt['id']]})" for rt in available_roundtables])
-                rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
+                rt_choice_str = st.selectbox(
+                    "Select a round table",
+                    [
+                        f"{rt['name']} – 📍 {rt['room']} "
+                        f"({current_counts[rt['id']]}/{CAPACITY_BY_NAME.get(rt['name'], 100)})"
+                        for rt in available_roundtables
+                    ]
+                )
+                rt_choice = next(
+                    rt for rt in available_roundtables
+                    if rt_choice_str.startswith(rt['name'])
+                )
+
                 if st.button("📅 Book this round table"):
-                    # Salvo i dati in sessione per conferma
+                    # Salva i dati per conferma e ricarica la pagina
                     st.session_state["pending_rt_booking"] = {
                         "roundtable_id": rt_choice["id"],
                         "roundtable_name": rt_choice["name"],
@@ -349,39 +381,44 @@ def render_student(event):
                     }
                     st.rerun()
 
-                # --- Conferma prenotazione round table ---
-                if "pending_rt_booking" in st.session_state:
-                    pending_rt = st.session_state["pending_rt_booking"]
-                    st.warning(
-                        f"⚠️ Do you really want to book the round table **{pending_rt['roundtable_name']}** "
-                        f"in room **{pending_rt['room']}**?"
-                    )
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("✅ Confirm round table booking"):
-                            try:
-                                with engine.begin() as conn:
-                                    # Ricontrolla che non abbia già prenotato
-                                    already = get_student_roundtable_bookings(conn, event["id"], pending_rt["email"])
-                                    if already:
-                                        st.error("⚠️ You have already booked a round table.")
-                                    else:
-                                        book_roundtable(conn, event["id"], pending_rt["roundtable_id"], pending_rt["email"], pending_rt["matricola"])
-                                        st.success(f"✅ Round table **{pending_rt['roundtable_name']}** booked successfully!")
-                                del st.session_state["pending_rt_booking"]
-                                st.rerun()
-                            except Exception as ex:
-                                st.error(f"❌ Error during booking: {ex}")
-                                del st.session_state["pending_rt_booking"]
-                                st.rerun()
-                    with col2:
-                        if st.button("❌ Cancel"):
-                            del st.session_state["pending_rt_booking"]
-                            st.info("Round table booking cancelled.")
-                            st.rerun()
+        # --- Conferma prenotazione round table (mostrata dopo il rerun) ---
+        if "pending_rt_booking" in st.session_state:
+            pending_rt = st.session_state["pending_rt_booking"]
+            st.warning(
+                f"⚠️ Do you really want to book the round table **{pending_rt['roundtable_name']}** "
+                f"in room **{pending_rt['room']}**?"
+            )
 
-            else:
-                st.info("No round tables available for booking at this time.")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Confirm round table booking"):
+                    try:
+                        with engine.begin() as conn:
+                            already = get_student_roundtable_bookings(conn, event["id"], pending_rt["email"])
+                            if already:
+                                st.error("⚠️ You have already booked a round table.")
+                            else:
+                                book_roundtable(
+                                    conn,
+                                    event["id"],
+                                    pending_rt["roundtable_id"],
+                                    pending_rt["email"],
+                                    pending_rt["matricola"]
+                                )
+                                st.success(
+                                    f"✅ Round table **{pending_rt['roundtable_name']}** booked successfully!"
+                                )
+                        del st.session_state["pending_rt_booking"]
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"❌ Error during booking: {ex}")
+                        del st.session_state["pending_rt_booking"]
+                        st.rerun()
+            with col2:
+                if st.button("❌ Cancel"):
+                    del st.session_state["pending_rt_booking"]
+                    st.info("Round table booking cancelled.")
+                    st.rerun()
 
         # --- Mostra prenotazioni correnti ---
         st.subheader("Your Round Table Bookings")
@@ -391,3 +428,4 @@ def render_student(event):
                     st.write(f"- {rt['name']} – 📍 {rt['room']}")
         else:
             st.info("You have no round table bookings yet.")
+
