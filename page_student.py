@@ -322,7 +322,9 @@ def render_student(event):
 
 
     # --- ROUND TABLES ---
+    st.write("DEBUG - Sto per creare le tab")
     with tab_roundtables:
+        st.write("DEBUG - Entrato in tab_roundtables ✅")
         st.subheader("Book a Round Table  9 - 11 am -- The round table booking cannot be deleted")
 
         # Capacità definite per nome (non per ID)
