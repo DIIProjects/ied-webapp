@@ -246,85 +246,82 @@ def render_student(event):
 
         if not available:
             st.warning("No slots available for this company.")
-            st.stop()
+        else:
+            slot_choice = st.selectbox("Available slots", available)
+            cv_link = st.text_input("Optional link / CV", key="cv_link_input")
 
-        slot_choice = st.selectbox("Available slots", available)
-        cv_link = st.text_input("Optional link / CV", key="cv_link_input")
-
-        # --- Info limite prenotazioni ---
-        now = datetime.now()
-        limit_active = (
-            MAX_INTERVIEWS_PER_STUDENT is not None and
-            (LIMIT_ACTIVE_UNTIL is None or now <= LIMIT_ACTIVE_UNTIL)
-        )
-
-        if limit_active:
-            st.info(
-                f"⚙️ Each student can book up to {MAX_INTERVIEWS_PER_STUDENT} interviews "
+            # --- Info limite prenotazioni ---
+            now = datetime.now()
+            limit_active = (
+                MAX_INTERVIEWS_PER_STUDENT is not None and
+                (LIMIT_ACTIVE_UNTIL is None or now <= LIMIT_ACTIVE_UNTIL)
             )
 
-        # --- Bottone di prenotazione con conferma ---
-        if st.button("📅 Book slot"):
-            # Salvo i dati della prenotazione in sessione per conferma
-            st.session_state["pending_booking"] = {
-                "company_name": pick,
-                "company_id": comp_id,
-                "slot": slot_choice,
-                "cv_link": cv_link or None,
-                "email": email,
-                "matricola": student["matricola"]
-            }
-            st.rerun()
+            if limit_active:
+                st.info(
+                    f"⚙️ Each student can book up to {MAX_INTERVIEWS_PER_STUDENT} interviews "
+                )
 
-        # --- Se esiste una prenotazione in attesa, mostra richiesta di conferma ---
-        if "pending_booking" in st.session_state:
-            pending = st.session_state["pending_booking"]
-            st.warning(
-                f"⚠️ Do you really want to book an interview with **{pending['company_name']}** "
-                f"at **{pending['slot']}**?"
-            )
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("✅ Confirm booking"):
-                    try:
-                        with engine.begin() as conn:
-                            # Controlla duplicati e limiti
-                            myb = get_student_bookings(conn, event["id"], pending["email"])
-                            already_with_company = any(b["company"] == pending["company_name"] for b in myb)
-                            if already_with_company:
-                                st.error(f"⚠️ You have already booked with {pending['company_name']}.")
-                            elif limit_active and len(myb) >= MAX_INTERVIEWS_PER_STUDENT:
-                                st.error(f"⚠️ You already booked {MAX_INTERVIEWS_PER_STUDENT} interviews.")
-                            else:
-                                book_slot(
-                                    conn,
-                                    event["id"],
-                                    pending["company_id"],
-                                    pending["email"],
-                                    pending["slot"],
-                                    pending["cv_link"],
-                                    pending["matricola"]
-                                )
-                                st.success(
-                                    f"✅ Booking confirmed with {pending['company_name']} at {pending['slot']}!"
-                                )
+            # --- Bottone di prenotazione con conferma ---
+            if st.button("📅 Book slot"):
+                # Salvo i dati della prenotazione in sessione per conferma
+                st.session_state["pending_booking"] = {
+                    "company_name": pick,
+                    "company_id": comp_id,
+                    "slot": slot_choice,
+                    "cv_link": cv_link or None,
+                    "email": email,
+                    "matricola": student["matricola"]
+                }
+                st.rerun()
+
+            # --- Se esiste una prenotazione in attesa, mostra richiesta di conferma ---
+            if "pending_booking" in st.session_state:
+                pending = st.session_state["pending_booking"]
+                st.warning(
+                    f"⚠️ Do you really want to book an interview with **{pending['company_name']}** "
+                    f"at **{pending['slot']}**?"
+                )
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("✅ Confirm booking"):
+                        try:
+                            with engine.begin() as conn:
+                                # Controlla duplicati e limiti
+                                myb = get_student_bookings(conn, event["id"], pending["email"])
+                                already_with_company = any(b["company"] == pending["company_name"] for b in myb)
+                                if already_with_company:
+                                    st.error(f"⚠️ You have already booked with {pending['company_name']}.")
+                                elif limit_active and len(myb) >= MAX_INTERVIEWS_PER_STUDENT:
+                                    st.error(f"⚠️ You already booked {MAX_INTERVIEWS_PER_STUDENT} interviews.")
+                                else:
+                                    book_slot(
+                                        conn,
+                                        event["id"],
+                                        pending["company_id"],
+                                        pending["email"],
+                                        pending["slot"],
+                                        pending["cv_link"],
+                                        pending["matricola"]
+                                    )
+                                    st.success(
+                                        f"✅ Booking confirmed with {pending['company_name']} at {pending['slot']}!"
+                                    )
+                            del st.session_state["pending_booking"]
+                            st.rerun()
+                        except Exception as ex:
+                            st.error(f"❌ Error during booking: {ex}")
+                            del st.session_state["pending_booking"]
+                            st.rerun()
+                with col2:
+                    if st.button("❌ Cancel"):
                         del st.session_state["pending_booking"]
+                        st.info("Booking cancelled.")
                         st.rerun()
-                    except Exception as ex:
-                        st.error(f"❌ Error during booking: {ex}")
-                        del st.session_state["pending_booking"]
-                        st.rerun()
-            with col2:
-                if st.button("❌ Cancel"):
-                    del st.session_state["pending_booking"]
-                    st.info("Booking cancelled.")
-                    st.rerun()
 
 
     # --- ROUND TABLES ---
-    st.write("DEBUG - Sto per creare le tab")
     with tab_roundtables:
-        st.write("DEBUG - Entrato in tab_roundtables ✅")
         st.subheader("Book a Round Table  9 - 11 am -- The round table booking cannot be deleted")
 
         # Capacità definite per nome (non per ID)
@@ -339,8 +336,6 @@ def render_student(event):
 
         with engine.begin() as conn:
             roundtables = get_roundtables(conn, event["id"])
-            st.write(f"Event ID attivo: {event['id']}")
-            st.write("Roundtables trovate:", len(roundtables))
             my_rt_bookings = {
                 b['roundtable_id'] for b in get_student_roundtable_bookings(conn, event["id"], email)
             }
