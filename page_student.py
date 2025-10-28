@@ -336,7 +336,7 @@ def render_student(event):
         }
 
         with engine.begin() as conn:
-            roundtables = get_roundtables(conn, event["id"])
+            roundtables = get_roundtables(conn, 1)
             my_rt_bookings = {
                 b['roundtable_id'] for b in get_student_roundtable_bookings(conn, event["id"], email)
             }
