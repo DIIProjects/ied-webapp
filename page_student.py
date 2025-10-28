@@ -334,7 +334,7 @@ def render_student(event):
         if my_rt_bookings:
             st.warning("⚠️ You have already booked a round table.")
         else:
-            available_roundtables = [rt for rt in roundtables if current_counts[rt['id']] < CAPACITY[rt['id']] // 2]
+            available_roundtables = [rt for rt in roundtables if current_counts[rt['id']] < CAPACITY[rt['id']]]
             if available_roundtables:
                 rt_choice_str = st.selectbox("Select a round table", [f"{rt['name']} – 📍 {rt['room']} ({current_counts[rt['id']]}/{CAPACITY[rt['id']]})" for rt in available_roundtables])
                 rt_choice = next(rt for rt in available_roundtables if rt_choice_str.startswith(rt['name']))
