@@ -165,45 +165,31 @@ def render_company(event):
     with engine.begin() as conn:
         rows = get_bookings_with_logs(conn, event["id"], cid)
 
-    def fmt(ts: str | None) -> str:
-        if not ts:
-            return ""
-        return ts[:19].replace("T", " ")
-
     if not rows:
         st.info("Nessuna prenotazione")
         return
 
-    df = pd.DataFrame([
-        {
-            "Orario": r["slot"],
-            "Studente": r["student"],
-            "CV": "✅" if r["cv_path"] else "—",
-            "Stato": r["status"],
-            "Inizio": fmt(r.get("start_time")),
-            "Fine": fmt(r.get("end_time")),
-            "_id": r["id"],
-            "_cv": r.get("cv_path"),
-        } for r in rows
-    ]).sort_values("Orario")
+    df = pd.DataFrame(rows).sort_values("slot")
 
-    st.dataframe(df[["Orario", "Studente", "CV", "Stato", "Inizio", "Fine"]], use_container_width=True)
+    st.dataframe(df[["slot", "student", "CV", "status", "start_time", "end_time"]], use_container_width=True)
 
     st.markdown("**Scarica CV (se disponibile)**")
-    for r in df.to_dict("records"):
-        if r["_cv"]:
+    for r in rows:
+        if r.get("cv_path"):
             try:
-                with open(r["_cv"], "rb") as f:
+                with open(r["cv_path"], "rb") as f:
                     st.download_button(
-                        label=f"📄 Scarica CV: {r['Orario']} – {r['Studente']}",
+                        label=f"📄 Scarica CV: {r['slot']} – {r['student']}",
                         data=f.read(),
-                        file_name=os.path.basename(r["_cv"]),
+                        file_name=os.path.basename(r["cv_path"]),
                         mime="application/pdf",
-                        key=f"dl_{r['_id']}"
+                        key=f"dl_{r['id']}"
                     )
-            except Exception:
-                st.warning(f"CV non trovato su disco per {r['Orario']} – {r['Studente']}")
+            except FileNotFoundError:
+                st.warning(f"CV non trovato su disco per {r['slot']} – {r['student']}")
 
+
+"""
     # Debug
     with engine.begin() as conn:
         dbg = conn.execute(
@@ -211,3 +197,4 @@ def render_company(event):
         ).mappings().all()
     with st.expander("Debug interview_log"):
         st.write(pd.DataFrame(dbg))
+"""

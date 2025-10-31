@@ -24,7 +24,7 @@ from core import (
 from auth import find_student_user
 
 # --- CONFIGURAZIONE COLLOQUI ---
-MAX_INTERVIEWS_PER_STUDENT = 2       # Limite prenotazioni
+MAX_INTERVIEWS_PER_STUDENT = 999       # Limite prenotazioni
 LIMIT_ACTIVE_UNTIL = datetime(2025, 11, 11)  # Data fine limite (es. tra qualche giorno)
 
 
@@ -63,10 +63,10 @@ def student_first_access(email: str):
 
     if st.button("💾 Save and continue"):
         # --- Verifica che abbia selezionato la plenary session ---
-        if not plenary_attend:
-            st.error("⚠️ You must confirm participation to the plenary session to continue.")
+        #if not plenary_attend:
+        #    st.error("⚠️ You must confirm participation to the plenary session to continue.")
         
-        elif not agree_info or not agree_share:
+        if not agree_info or not agree_share:
             st.error("⚠️ You must accept both privacy statements to continue.")
         
         else:

@@ -128,7 +128,7 @@ SEED = [
     ("INSERT OR IGNORE INTO company (name) VALUES ('Global Wafers (Memc)')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('IIT hydrogen')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('Iveco')", {}),
-    ("INSERT OR IGNORE INTO company (name) VALUES ('Infeon Technologies Italia')", {}),
+    ("INSERT OR IGNORE INTO company (name) VALUES ('Infineon Technologies Italia')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('Kosme')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('La Sportiva')", {}),
     ("INSERT OR IGNORE INTO company (name) VALUES ('Leitner')", {}),
@@ -449,13 +449,19 @@ def get_bookings_with_logs(conn, event_id, company_id):
         return ts[:19].replace("T", " ")
 
     rows = []
-    for rm in raw_rows:
-        d = dict(rm)
-        d["start_time"] = fmt(d.get("start_time"))
-        d["end_time"] = fmt(d.get("end_time"))
-        d["cv"] = "✅" if d.get("cv_path") else "—"
-        rows.append(d)
+    for r in raw_rows:
+        rows.append({
+            "id": r["id"],
+            "slot": r["slot"],
+            "student": r["student"],
+            "cv_path": r["cv_path"],        # importante: conserviamo il path reale
+            "CV": "✅" if r["cv_path"] else "—",  # per la tabella
+            "status": r["status"],
+            "start_time": fmt(r.get("start_time")),
+            "end_time": fmt(r.get("end_time")),
+        })
     return rows
+
 
 def get_student_matricola(conn, email):
     """
