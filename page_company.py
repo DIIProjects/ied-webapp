@@ -173,20 +173,36 @@ def render_company(event):
 
     st.dataframe(df[["slot", "student", "CV", "status", "start_time", "end_time"]], use_container_width=True)
 
-    st.markdown("**Scarica CV (se disponibile)**")
-    for r in rows:
-        if r.get("cv_path"):
+    st.markdown("### 📂 CV degli studenti")
+
+    for r in df.to_dict("records"):
+        cv_path = r.get("_cv") or r.get("cv_path") or r.get("CV")
+        if not cv_path:
+            continue
+
+        slot = r.get("slot") or r.get("Orario") or "?"
+        student = r.get("student") or r.get("Studente") or "?"
+
+        if isinstance(cv_path, str) and cv_path.strip().lower().startswith("http"):
+            st.markdown(
+                f"🔗 **[{slot} – {student}]({cv_path})**",
+                unsafe_allow_html=True
+            )
+        else:
             try:
-                with open(r["cv_path"], "rb") as f:
+                with open(cv_path, "rb") as f:
                     st.download_button(
-                        label=f"📄 Scarica CV: {r['slot']} – {r['student']}",
+                        label=f"📄 Scarica CV: {slot} – {student}",
                         data=f.read(),
-                        file_name=os.path.basename(r["cv_path"]),
+                        file_name=os.path.basename(cv_path),
                         mime="application/pdf",
-                        key=f"dl_{r['id']}"
+                        key=f"dl_{r.get('_id', cv_path)}"
                     )
             except FileNotFoundError:
-                st.warning(f"CV non trovato su disco per {r['slot']} – {r['student']}")
+                st.warning(f"CV non trovato su disco per {slot} – {student}")
+
+
+
 
 
 """

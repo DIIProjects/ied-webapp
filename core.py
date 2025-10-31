@@ -335,8 +335,8 @@ def book_slot(conn, event_id, company_id, student, slot, cv, matricola=None):
     # --- Proceed with normal insert ---
     conn.execute(
         text("""
-            INSERT INTO booking (event_id, company_id, student, slot, cv, status, matricola)
-            VALUES (:event_id, :company_id, :student, :slot, :cv, 'manual', :matricola)
+            INSERT INTO booking (event_id, company_id, student, slot, cv_path, status, matricola)
+            VALUES (:event_id, :company_id, :student, :slot, :cv_path, 'manual', :matricola)
             ON CONFLICT(event_id, company_id, student, slot) DO NOTHING
         """),
         {
@@ -344,7 +344,7 @@ def book_slot(conn, event_id, company_id, student, slot, cv, matricola=None):
             "company_id": company_id,
             "student": student,
             "slot": slot,
-            "cv": cv,
+            "cv_path": cv,
             "matricola": matricola
         }
     )
