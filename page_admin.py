@@ -31,7 +31,7 @@ def render_admin(event):
                 text("""
                     SELECT id, givenName, sn, email, matricola, plenary_confirmed
                     FROM student
-                    ORDER BY givenName COLLATE NOCASE
+                    ORDER BY sn COLLATE NOCASE, givenName COLLATE NOCASE
                 """)
             ).mappings())
 
