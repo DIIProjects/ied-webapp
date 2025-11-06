@@ -245,6 +245,8 @@ def render_admin(event):
         st.subheader("Tavole Rotonde")
 
         df_all = []
+        presence_updates = {}  # ✅ qui accumuliamo le modifiche
+
         with engine.begin() as conn:
             rts = get_roundtables(conn, event["id"])
 
@@ -276,31 +278,18 @@ def render_admin(event):
                     with cols[0]:
                         st.write(f"👤 {b['givenName']} {b['sn']} ({b['matricola'] or '—'})")
 
-                    # ✅ Gestione presenza
+                    # ✅ Checkbox NON salva più subito
                     with cols[1]:
-                        present = st.checkbox(
+                        key = f"attend_{rt['id']}_{b['email']}"
+                        val = st.checkbox(
                             "Presente",
                             value=bool(b["attended"]),
-                            key=f"attend_{rt['id']}_{b['email']}"
+                            key=key
                         )
-                        if present != bool(b["attended"]):
-                            conn.execute(
-                                text("""
-                                    UPDATE roundtable_booking
-                                    SET attended = :a
-                                    WHERE student = :email 
-                                    AND roundtable_id = :rt_id
-                                    AND event_id = :event_id
-                                """),
-                                {
-                                    "a": int(present),
-                                    "email": b["email"],
-                                    "rt_id": rt["id"],
-                                    "event_id": event["id"]
-                                }
-                            )
+                        # ✅ memorizza la scelta
+                        presence_updates[(rt['id'], b['email'])] = val
 
-                    # ✅ Pulsante sposta
+                    # ✅ Pulsante sposta (funziona come prima)
                     with cols[2]:
                         if st.button("🔁 Sposta", key=f"move_{rt['id']}_{b['email']}"):
                             st.session_state["move_student"] = {
@@ -315,8 +304,30 @@ def render_admin(event):
                     row["Room"] = rt["room"]
                     df_all.append(row)
 
+        # ✅ PULSANTE SALVATAGGIO PRESENZE
+        if st.button("💾 Salva presenze Round Tables"):
+            with engine.begin() as conn:
+                for (rt_id, email), present in presence_updates.items():
+                    conn.execute(
+                        text("""
+                            UPDATE roundtable_booking
+                            SET attended = :a
+                            WHERE student = :email 
+                            AND roundtable_id = :rt_id
+                            AND event_id = :event_id
+                        """),
+                        {
+                            "a": int(present),
+                            "email": email,
+                            "rt_id": rt_id,
+                            "event_id": event["id"]
+                        }
+                    )
+            st.success("✅ Presenze aggiornate con successo!")
+            st.rerun()
+
         # --------------------------------------------------
-        # ✅ PANNELLO SPOSTAMENTO STUDENTE (FUORI DAL CICLO)
+        # ✅ PANNELLO SPOSTAMENTO STUDENTE (UGUALE AL TUO)
         # --------------------------------------------------
         if "move_student" in st.session_state:
             move = st.session_state["move_student"]
@@ -324,7 +335,6 @@ def render_admin(event):
             st.markdown("---")
             st.subheader(f"🔁 Sposta studente **{move['email']}**")
 
-            # ✅ solo roundtable diverse da quella attuale
             target_rt = st.selectbox(
                 "Sposta in:",
                 [x for x in rts if x["id"] != move["from_rt"]],
@@ -334,7 +344,6 @@ def render_admin(event):
 
             if st.button("✅ Conferma spostamento", key=f"confirm_move_{move['from_rt']}_{move['email']}"):
                 with engine.begin() as conn:
-                    # Rimuovi dalla RT corrente
                     conn.execute(
                         text("""
                             DELETE FROM roundtable_booking
@@ -349,7 +358,6 @@ def render_admin(event):
                         }
                     )
 
-                    # Inserisci nella nuova RT
                     conn.execute(
                         text("""
                             INSERT INTO roundtable_booking (roundtable_id, student, event_id)
@@ -368,7 +376,7 @@ def render_admin(event):
                 st.rerun()
 
         # --------------------------------------
-        # ✅ Esportazione CSV
+        # ✅ Esportazione CSV (UGUALE)
         # --------------------------------------
         if df_all:
             df_csv = pd.DataFrame(df_all)
