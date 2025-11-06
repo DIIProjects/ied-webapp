@@ -243,55 +243,143 @@ def render_admin(event):
     # -----------------------------
     with tab_roundtables:
         st.subheader("Tavole Rotonde")
-        if "rt_update" not in st.session_state:
-            st.session_state.rt_update = 0
 
         df_all = []
         with engine.begin() as conn:
             rts = get_roundtables(conn, event["id"])
+
+            # ---------------------------------
+            # LOOP PRINCIPALE SU ROUND TABLES
+            # ---------------------------------
             for rt in rts:
                 bookings = list(conn.execute(
                     text("""
                         SELECT s.givenName, s.sn, s.matricola, s.email,
-                               r.attended
+                            r.attended
                         FROM roundtable_booking r
                         JOIN student s ON s.email = r.student
                         WHERE r.roundtable_id=:rt_id
+                        AND r.event_id=:event_id
                         ORDER BY r.created_at
-                    """), {"rt_id": rt["id"]}
+                    """),
+                    {"rt_id": rt["id"], "event_id": event["id"]}
                 ).mappings())
 
-                if bookings:
-                    st.write(f"### {rt['name']} – {rt['room']}")
-                    for b in bookings:
-                        cols = st.columns([5, 2])
-                        with cols[0]:
-                            st.write(f"👤 {b['givenName']} {b['sn']} ({b['matricola'] or '—'})")
-                        with cols[1]:
-                            present = st.checkbox(
-                                "Presente",
-                                value=bool(b["attended"]),
-                                key=f"attend_{rt['id']}_{b['email']}"
-                            )
-                            if present != bool(b["attended"]):
-                                conn.execute(
-                                    text("UPDATE roundtable_booking SET attended=:a WHERE student=:email AND roundtable_id=:rt_id"),
-                                    {"a": int(present), "email": b["email"], "rt_id": rt["id"]}
-                                )
-                    for b in bookings:
-                        row = dict(b)  # ✅ converte RowMapping in dict
-                        row["RoundTable"] = rt["name"]
-                        row["Room"] = rt["room"]
-                        df_all.append(row)
+                if not bookings:
+                    continue
 
+                st.write(f"### {rt['name']} – {rt['room']}")
+
+                for b in bookings:
+                    cols = st.columns([4, 2, 2])
+
+                    with cols[0]:
+                        st.write(f"👤 {b['givenName']} {b['sn']} ({b['matricola'] or '—'})")
+
+                    # ✅ Gestione presenza
+                    with cols[1]:
+                        present = st.checkbox(
+                            "Presente",
+                            value=bool(b["attended"]),
+                            key=f"attend_{rt['id']}_{b['email']}"
+                        )
+                        if present != bool(b["attended"]):
+                            conn.execute(
+                                text("""
+                                    UPDATE roundtable_booking
+                                    SET attended = :a
+                                    WHERE student = :email 
+                                    AND roundtable_id = :rt_id
+                                    AND event_id = :event_id
+                                """),
+                                {
+                                    "a": int(present),
+                                    "email": b["email"],
+                                    "rt_id": rt["id"],
+                                    "event_id": event["id"]
+                                }
+                            )
+
+                    # ✅ Pulsante sposta
+                    with cols[2]:
+                        if st.button("🔁 Sposta", key=f"move_{rt['id']}_{b['email']}"):
+                            st.session_state["move_student"] = {
+                                "email": b["email"],
+                                "from_rt": rt["id"]
+                            }
+                            st.rerun()
+
+                    # per CSV
+                    row = dict(b)
+                    row["RoundTable"] = rt["name"]
+                    row["Room"] = rt["room"]
+                    df_all.append(row)
+
+        # --------------------------------------------------
+        # ✅ PANNELLO SPOSTAMENTO STUDENTE (FUORI DAL CICLO)
+        # --------------------------------------------------
+        if "move_student" in st.session_state:
+            move = st.session_state["move_student"]
+
+            st.markdown("---")
+            st.subheader(f"🔁 Sposta studente **{move['email']}**")
+
+            # ✅ solo roundtable diverse da quella attuale
+            target_rt = st.selectbox(
+                "Sposta in:",
+                [x for x in rts if x["id"] != move["from_rt"]],
+                format_func=lambda x: f"{x['name']} – {x['room']}",
+                key=f"target_rt_panel_{move['from_rt']}_{move['email']}"
+            )
+
+            if st.button("✅ Conferma spostamento", key=f"confirm_move_{move['from_rt']}_{move['email']}"):
+                with engine.begin() as conn:
+                    # Rimuovi dalla RT corrente
+                    conn.execute(
+                        text("""
+                            DELETE FROM roundtable_booking
+                            WHERE student = :email
+                            AND roundtable_id = :rt_from
+                            AND event_id = :event_id
+                        """),
+                        {
+                            "email": move["email"],
+                            "rt_from": move["from_rt"],
+                            "event_id": event["id"]
+                        }
+                    )
+
+                    # Inserisci nella nuova RT
+                    conn.execute(
+                        text("""
+                            INSERT INTO roundtable_booking (roundtable_id, student, event_id)
+                            VALUES (:rt_to, :email, :event_id)
+                            ON CONFLICT DO NOTHING
+                        """),
+                        {
+                            "rt_to": target_rt["id"],
+                            "email": move["email"],
+                            "event_id": event["id"]
+                        }
+                    )
+
+                st.success(f"✅ Studente spostato in {target_rt['name']}")
+                del st.session_state["move_student"]
+                st.rerun()
+
+        # --------------------------------------
+        # ✅ Esportazione CSV
+        # --------------------------------------
         if df_all:
             df_csv = pd.DataFrame(df_all)
             df_csv = df_csv.rename(columns={"attended": "Round Table Attendance"})
-            df_csv = df_csv[["RoundTable", "Room", "givenName", "sn", "matricola", "email", "Round Table Attendance"]]
+            df_csv = df_csv[[
+                "RoundTable", "Room", "givenName", "sn",
+                "matricola", "email", "Round Table Attendance"
+            ]]
             st.download_button(
                 "📥 Esporta presenze Round Tables",
                 data=df_csv.to_csv(index=False),
                 file_name="presenze_roundtables.csv",
                 mime="text/csv"
             )
-
