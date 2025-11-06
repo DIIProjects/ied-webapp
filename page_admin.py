@@ -262,7 +262,7 @@ def render_admin(event):
                         JOIN student s ON s.email = r.student
                         WHERE r.roundtable_id=:rt_id
                         AND r.event_id=:event_id
-                        ORDER BY r.created_at
+                        ORDER BY s.sn ASC, s.givenName ASC
                     """),
                     {"rt_id": rt["id"], "event_id": event["id"]}
                 ).mappings())
@@ -376,7 +376,7 @@ def render_admin(event):
                 st.rerun()
 
         # --------------------------------------
-        # ✅ Esportazione CSV (UGUALE)
+        # ✅ Esportazione CSV
         # --------------------------------------
         if df_all:
             df_csv = pd.DataFrame(df_all)
