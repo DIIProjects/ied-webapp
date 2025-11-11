@@ -41,7 +41,7 @@ def render_admin(event):
             with st.form("plenary_form"):
                 presence_dict = {}
                 for s in students:
-                    label = f"{s['givenName']} {s['sn']} ({s['matricola'] or '—'})"
+                    label = f"{s['sn']} {s['givenName']} ({s['matricola'] or '—'})"
                     
                     # Qui leggo dal DB, se nulla o 0 -> checkbox non selezionata
                     presence_dict[s["id"]] = st.checkbox(
@@ -146,9 +146,12 @@ def render_admin(event):
                 for b in sorted(df_rows, key=lambda x: x["Orario"]):
                     cols = st.columns([4, 3, 2, 1])
                     with cols[0]:
-                        st.write(f"👤 {b['Nome']} {b['Cognome']} ({b['Matricola'] or '—'})")
+                        initial_name = (b["Nome"][0] + ".") if b["Nome"] else ""
+                        initial_surname = (b["Cognome"][0] + ".") if b["Cognome"] else ""
+                        matricola = b["Matricola"] or "—"
+                        st.write(f"👤 {initial_surname}{initial_name} ({matricola})")
                     with cols[1]:
-                        st.write(f"📧 {b['Email']}")
+                        st.write("")
                     with cols[2]:
                         st.write(f"🕒 {b['Orario']}")
                     with cols[3]:
@@ -262,7 +265,7 @@ def render_admin(event):
                         JOIN student s ON s.email = r.student
                         WHERE r.roundtable_id=:rt_id
                         AND r.event_id=:event_id
-                        ORDER BY s.sn ASC, s.givenName ASC
+                        ORDER BY s.sn COLLATE NOCASE ASC, s.givenName COLLATE NOCASE ASC
                     """),
                     {"rt_id": rt["id"], "event_id": event["id"]}
                 ).mappings())
@@ -276,7 +279,7 @@ def render_admin(event):
                     cols = st.columns([4, 2, 2])
 
                     with cols[0]:
-                        st.write(f"👤 {b['givenName']} {b['sn']} ({b['matricola'] or '—'})")
+                        st.write(f"👤 {b['sn']} {b['givenName']} ({b['matricola'] or '—'})")
 
                     # ✅ Checkbox NON salva più subito
                     with cols[1]:
